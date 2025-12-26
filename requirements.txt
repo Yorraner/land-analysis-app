@@ -9,6 +9,5 @@ matplotlib
 coze
 cozepy
 PyPDF2
-re
 fitz
 tqdm
