@@ -230,7 +230,7 @@ elif step == "2. 大模型数据获取":
                 file_name = info["原始文件名"]
                 # 这里的“新文件名”实际上就是步骤1生成的规范化文件名 (例如: 潮州-湘桥_问题)
 
-                region_name = info["新文件名"] 
+                region_name = info["文件名"] 
                 
                 file_path = os.path.join(DIRS["crop"], file_name)
                 
@@ -285,9 +285,7 @@ elif step == "2. 大模型数据获取":
                             results.append({
                                 "地区": region_name,
                                 "rawdata": raw_data,
-                                "原始文件名": file_name
                             })
-                
                 # 更新总进度
                 progress_bar.progress((i + 1) / len(files))
             
@@ -343,48 +341,49 @@ if step == "4. 数据融合&展示":
     if not csvs:
         st.warning("⚠️ 没有找到解析后的数据文件，请先完成步骤 3。")
     else:
-        st.write("选择要参与融合的数据表（建议全选以保证特征完整性）：")
-        # 默认选中所有文件，并尝试按照您的逻辑排序（比如 1.自然资源 2.潜力...）
-        # 这里简单按文件名排序
-        csvs.sort() 
-        selected = st.multiselect("选择文件", csvs, default=csvs)
+        st.info("💡 提示：为了保证归一化索引正确，系统将按照 **[自然资源 -> 潜力 -> 空间 -> 问题 -> 项目]** 的顺序强制排序。")
+        
+        # === 核心逻辑：强制文件排序 ===
+        # 定义期望的关键词顺序（与 preprocess_X 中的硬编码索引对应）
+        # 1.自然资源: 0-3
+        # 2.潜力: 4-22
+        # 3.空间: 23-27
+        # 4.问题: 28-32
+        # 5.项目: 33+
+        order_keywords = ["土地利用现状", "整治潜力", "空间布局", "存在问题", "项目汇总"]
+        
+        sorted_csvs = []
+        for kw in order_keywords:
+            for f in csvs:
+                if kw in f and f not in sorted_csvs:
+                    sorted_csvs.append(f)
+        
+        # 把剩下没匹配到的加到后面
+        for f in csvs:
+            if f not in sorted_csvs:
+                sorted_csvs.append(f)
+        
+        selected = st.multiselect("选择要融合的文件 (已自动排序)", sorted_csvs, default=sorted_csvs)
         
         if st.button("开始融合与归一化", type="primary"):
             if not selected:
                 st.error("请至少选择一个文件。")
             else:
                 matrices, maps, names = [], [], []
-                
-                # 按照用户选择的顺序读取
-                # 注意：如果要保证 preprocess_X 的硬编码索引有效，
-                # 这里读取文件的顺序必须非常严格！建议在文件名中加入前缀如 "01_parsed_自然资源..."
-                # 或者在这里手动指定顺序逻辑
-                
-                st.info("💡 提示：正在构建原始矩阵...")
-                
-                # 为了演示，我们假设 selected 里的文件顺序就是正确的顺序
-                # 实际应用中，您可能需要在这里写一段逻辑来重排 selected 列表
-                # 例如: 
-                # order_map = {"自然资源":0, "潜力":1, "空间":2, "问题":3, "项目":4}
-                # selected.sort(key=lambda x: order_map.get(x.split('_')[1], 99))
-                
                 all_feature_names = []
                 
+                # 按照排序后的 selected 列表读取
                 for f in selected:
                     path = os.path.join(DIRS["result"], f)
                     df = pd.read_csv(path)
                     
-                    # 假设第1列是地区
                     region_col = df.columns[0]
                     df = df.set_index(region_col)
-                    
-                    # 只取数值列
                     df_num = df.select_dtypes(include=['number']).fillna(0)
                     
                     matrices.append(df_num.values)
                     maps.append({name: i for i, name in enumerate(df_num.index)})
                     
-                    # 记录特征名
                     feat_prefix = f.replace("parsed_", "").replace(".csv", "")
                     names.append(feat_prefix)
                     all_feature_names.extend([f"{feat_prefix}:{c}" for c in df_num.columns])
@@ -393,180 +392,135 @@ if step == "4. 数据融合&展示":
                 regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
                 
                 if len(regions) > 0:
-                    st.success(f"✅ 融合成功！原始矩阵形状: {X_final.shape} (包含 {len(regions)} 个地区)")
+                    st.success(f"✅ 融合成功！共 {len(regions)} 个地区，特征维度: {X_final.shape[1]}")
                     
-                    # 2. 归一化处理
                     try:
+                        # 2. 归一化处理
                         st.info("正在进行 Min-Max 归一化处理...")
+                        # 检查列数是否足够支持硬编码索引
+                        if X_final.shape[1] < 30: # 简单检查，因为preprocess_X用到列索引28-32
+                            st.warning(f"⚠️ 警告：当前特征列数 ({X_final.shape[1]}) 可能少于预期，归一化可能会出错或索引越界。建议确保上传了所有 5 类数据。")
+                        
                         X_norm = preprocess_X(X_final)
                         
                         # 3. 保存归一化后的矩阵
                         final_df = pd.DataFrame(X_norm, index=regions, columns=all_feature_names)
-                        save_path = os.path.join(DIRS["4_results"], "parsed_final_matrix.csv")
+                        save_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
                         final_df.to_csv(save_path, encoding='utf-8-sig')
                         
-                        col1, col2 = st.columns([1, 1])
-                        with col1:
-                            st.write("📊 **归一化后数据预览:**")
-                            st.dataframe(final_df.head(10))
+                        # 保存原始矩阵备用
+                        raw_save_path = os.path.join(DIRS["result"], "parsed_raw_matrix.csv")
+                        raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
+                        raw_df.to_csv(raw_save_path, encoding='utf-8-sig')
                         
-                        with col2:
+                        # 展示与下载
+                        c1, c2 = st.columns([2, 1])
+                        with c1:
+                            st.write("📊 **归一化后数据预览:**")
+                            st.dataframe(final_df.head(5))
+                        with c2:
                             st.write("📥 **下载结果:**")
-                            st.download_button(
-                                "下载归一化矩阵 (CSV)",
-                                final_df.to_csv(encoding='utf-8-sig'),
-                                "final_matrix_norm.csv",
-                                "text/csv",
-                                key='download-norm'
-                            )
-                            # 也可以提供原始矩阵下载
-                            raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
-                            st.download_button(
-                                "下载原始矩阵 (CSV)",
-                                raw_df.to_csv(encoding='utf-8-sig'),
-                                "final_matrix_raw.csv",
-                                "text/csv",
-                                key='download-raw'
-                            )
+                            st.download_button("下载归一化矩阵 (CSV)", final_df.to_csv(encoding='utf-8-sig'), "final_matrix_norm.csv", "text/csv")
+                            st.download_button("下载原始矩阵 (CSV)", raw_df.to_csv(encoding='utf-8-sig'), "final_matrix_raw.csv", "text/csv")
 
                         # 4. 热力图可视化
                         st.divider()
                         st.subheader("🎨 特征热力图可视化")
-                        
-                        # 检查是否有中文字体，如果没有可能显示方块
-                        # 我们可以传特征名的索引，或者尝试显示特征名
-                        # 由于特征名太长，建议热力图 x 轴只显示索引
-                        
-                        fig = plot_heatmap(X_norm, regions) # 不传 feature_names，默认显示数字索引
+                        fig = plot_heatmap(X_norm, regions)
                         st.pyplot(fig)
                         
                     except Exception as e:
                         st.error(f"归一化或绘图失败: {e}")
-                        st.warning("可能是矩阵列数与 preprocess_X 中硬编码的索引不匹配。请检查 utils_fusion.py。")
+                        st.warning("提示：请检查 utils_fusion.py 中的 preprocess_X 索引是否与当前数据的列顺序匹配。")
                 else:
                     st.error("融合失败：所选数据表之间没有公共地区。")
-            
-# # ========================================================
+
+# ========================================================
+# 5. 数据分类与导出
+# ========================================================
 if step == "5. 数据分类与导出":
     st.header("📊 步骤 5: 智能分区分类 (K-Means)")
     
-    auto_path = os.path.join(DIRS["4_results"], "parsed_final_matrix.csv")
+    # 自动加载上一步的文件
+    # 注意：这里我们优先读取 "归一化后的矩阵"
+    auto_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
     
     df_matrix = None
-    if os.path.exists(auto_path):
-        st.success("✅ 自动检测到步骤 4 生成的矩阵文件。")
-        use_auto = st.checkbox("使用自动生成的文件", value=True)
-        if use_auto:
+    
+    # 1. 数据源选择
+    data_source_opt = st.radio("数据来源", ["自动加载 (步骤4结果)", "手动上传 (CSV)"])
+    
+    if data_source_opt == "自动加载 (步骤4结果)":
+        if os.path.exists(auto_path):
+            st.success(f"✅ 已检测到文件: parsed_final_matrix.csv")
             df_matrix = pd.read_csv(auto_path, index_col=0)
-    
-    if df_matrix is None:
-        uploaded_matrix = st.file_uploader("或者上传已有的矩阵 CSV", type=["csv"])
-        if uploaded_matrix:
-            df_matrix = pd.read_csv(uploaded_matrix, index_col=0)
-
-    data_source = st.radio("数据来源", ["使用上一步融合的数据", "上传已有的矩阵 CSV"])
-    df_matrix = None
-    
-    if data_source == "上传已有的矩阵 CSV":
+        else:
+            st.warning("⚠️ 未找到自动生成的文件，请先完成步骤 4 或选择手动上传。")
+            
+    elif data_source_opt == "手动上传 (CSV)":
         uploaded_matrix = st.file_uploader("上传特征矩阵 CSV", type=["csv"])
         if uploaded_matrix:
             df_matrix = pd.read_csv(uploaded_matrix, index_col=0)
-    else:
-        # 尝试从内存或临时文件读取 (这里假设 Step 4 提供了下载，我们也可以让 Step 4 自动存一个文件)
-        # 建议在 Step 4 的代码末尾加一句: final_df.to_csv(os.path.join(DIRS["final"], "matrix_latest.csv"), ...)
-        # 这里模拟读取:
-        auto_path = os.path.join(DIRS["4_results"], "parsed_final_matrix.csv") # 假设路径
-        # 由于Step 4只是提供了下载按钮，为了连贯性，建议用户手动上传刚才下载的文件，或者我们在Step 4增加自动保存逻辑
-        # 暂时提示用户上传
-        st.info("请上传步骤 4 下载的 `final_matrix.csv` 文件进行分析。")
-        uploaded_matrix = st.file_uploader("上传 final_matrix.csv", type=["csv"], key="auto_upload")
-        if uploaded_matrix:
-            df_matrix = pd.read_csv(uploaded_matrix, index_col=0)
 
+    # 2. 如果数据加载成功，显示配置项
     if df_matrix is not None:
-        st.write(f"✅ 已加载数据: {df_matrix.shape[0]} 个地区, {df_matrix.shape[1]} 个特征")
-        st.dataframe(df_matrix.head(3))
-        
         st.divider()
+        st.write(f"📊 **当前数据:** {df_matrix.shape[0]} 个地区, {df_matrix.shape[1]} 个特征")
+        with st.expander("查看数据详情"):
+            st.dataframe(df_matrix.head())
         
-        # === 参数设置区域 ===
         st.subheader("🛠️ 模型参数配置")
-        
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            n_clusters = st.slider("聚类类别数目 (K)", min_value=5, max_value=9, value=6)
+            n_clusters = st.slider("聚类类别数目 (K)", min_value=2, max_value=10, value=3)
             
         with col2:
             st.markdown("**⚖️ 权重设定 (专家打分)**")
-            
-            # 动态生成权重输入框
             weight_settings = {}
-            
-            # 使用 expander 收纳权重设置，避免界面太长
             with st.expander("点击展开详细权重设置", expanded=True):
-                # 1. 自然资源
                 c1, c2 = st.columns(2)
                 with c1:
-                    w1 = st.number_input("1. 自然资源禀赋 (权重)", value=5.0, step=0.1)
-                    weight_settings["自然资源禀赋"] = w1
+                    weight_settings["自然资源禀赋"] = st.number_input("1. 自然资源", value=5.0, step=0.1)
                 with c2:
-                    w1_bool = st.number_input("   ↳ 林地/布尔项 (权重)", value=1.0, step=0.1, help="weights_entory[3]")
-                    weight_settings["自然资源-布尔项"] = w1_bool
-                
-                # 2. 潜力
-                w2 = st.number_input("2. 潜力项数据 (权重)", value=1.0, step=0.1)
-                weight_settings["潜力项数据"] = w2
-                
-                # 3. 空间
+                    weight_settings["自然资源-布尔项"] = st.number_input("   ↳ 林地/布尔", value=1.0, step=0.1)
+                weight_settings["潜力项数据"] = st.number_input("2. 潜力数据", value=1.0, step=0.1)
                 c3, c4 = st.columns(2)
-                with c3:
-                    w3 = st.number_input("3. 空间布局 (权重)", value=0.1, step=0.05)
-                    weight_settings["空间布局"] = w3
-                with c4:
-                    w4 = st.number_input("4. 存在问题 (权重)", value=0.1, step=0.05)
-                    weight_settings["存在问题"] = w4
-                
-                # 5. 子项目
-                w5 = st.number_input("5. 子项目数据 (权重)", value=0.05, step=0.01)
-                weight_settings["子项目数据"] = w5
+                with c3: weight_settings["空间布局"] = st.number_input("3. 空间布局", value=0.1, step=0.05)
+                with c4: weight_settings["存在问题"] = st.number_input("4. 存在问题", value=0.1, step=0.05)
+                weight_settings["子项目数据"] = st.number_input("5. 子项目", value=0.05, step=0.01)
 
-        # === 执行分析 ===
+        # 3. 执行分析
         if st.button("🚀 开始聚类分析", type="primary"):
             try:
-                # 1. 构建权重向量
                 total_feats = df_matrix.shape[1]
-                # 假设CSV的列顺序严格按照 FEATURE_GROUPS_DEF 的顺序排列
-                # 如果是您之前流程生成的矩阵，顺序应该是对的
+                # 构建权重向量
                 weights_vec = build_weight_vector(weight_settings, total_feats)
                 
-                # 2. 执行聚类
+                # 执行聚类
                 labels, X_pca, X_final = perform_clustering(df_matrix, n_clusters, weights_vec)
                 
-                # 3. 结果展示
+                # 结果处理
                 df_matrix['Cluster_ID'] = labels
                 df_matrix['Cluster_Label'] = df_matrix['Cluster_ID'].apply(lambda x: f"类别 {x+1}")
                 
                 st.success("✅ 聚类完成！")
                 
-                # 可视化
+                # 可视化展示
                 st.subheader("📈 聚类结果可视化 (PCA)")
                 fig = plot_clusters(X_pca, labels, df_matrix.index)
                 st.pyplot(fig)
                 
-                # 结果表格
+                # 结果列表
                 st.subheader("📋 分类结果表")
                 st.dataframe(df_matrix[['Cluster_Label']].sort_values('Cluster_Label'))
                 
-                # 下载
-                csv = df_matrix.to_csv(encoding='utf-8-sig')
+                # 下载按钮
                 st.download_button(
-                    "📥 下载带分类结果的 CSV",
-                    csv,
-                    "clustered_result.csv",
+                    "📥 下载带分类结果的 CSV", 
+                    df_matrix.to_csv(encoding='utf-8-sig'), 
+                    "clustered_result.csv", 
                     "text/csv"
                 )
-                
             except Exception as e:
                 st.error(f"分析出错: {e}")
-                st.warning("提示：请确保输入的矩阵列顺序与预设的特征组顺序一致。")
