@@ -397,7 +397,8 @@ elif step == "3. 数据解析":
             elif parse_type == "整治潜力":
                 from utils_parse import parse_potential_row
                 parsed_df_data_1 = parse_potential_row(df_raw)
-            elif parse_type == "子项目":        
+            elif parse_type == "子项目":     
+                pass   
             
             
             # # 合并地区列
