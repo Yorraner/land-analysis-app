@@ -274,3 +274,65 @@ def extract_info(filename):
         "地区/县": district,
         "详细单元": unit if unit else "无"
     }
+    
+    
+def extract_pages_by_keywords(pdf_path, output_path, keyword_pattern_str):
+    """
+    扫描每一页内容，匹配关键词（支持正则表达式）。
+    如果找到标题，且后续页面是连续表格，会自动合并后续页面。
+    """
+    pages_to_save = []
+    in_table = False
+    
+    # 编译正则
+    try:
+        search_pattern = re.compile(keyword_pattern_str)
+    except:
+        # 如果用户输入的不是正则，转为普通包含匹配
+        search_pattern = re.compile(re.escape(keyword_pattern_str))
+
+    src_doc = None
+    out_doc = None
+    
+    try:
+        src_doc = open_pdf_auto_repair(pdf_path)
+        if not src_doc: return False
+        
+        for page_index, page in enumerate(src_doc):
+            text = page.get_text() or ""
+            
+            # 判断是否包含标题
+            has_title = bool(search_pattern.search(text))
+            
+            # 判断是否有表格 (PyMuPDF 功能)
+            # find_tables 比较耗时，仅在必要时调用或每一页调用
+            tables = page.find_tables()
+            has_table = len(tables.tables) > 0
+            
+            if has_title:
+                in_table = True
+                pages_to_save.append(page_index)
+            elif in_table and has_table:
+                # 如果处于"表格连续模式"且当前页也有表格，判定为跨页表格
+                pages_to_save.append(page_index)
+            else:
+                # 断开连续
+                in_table = False
+        
+        if not pages_to_save:
+            return False
+            
+        # 保存结果
+        out_doc = fitz.open()
+        for p_idx in pages_to_save:
+            out_doc.insert_pdf(src_doc, from_page=p_idx, to_page=p_idx)
+            
+        out_doc.save(output_path)
+        return True
+
+    except Exception as e:
+        print(f"关键词提取失败: {e}")
+        return False
+    finally:
+        if src_doc: src_doc.close()
+        if out_doc: out_doc.close()

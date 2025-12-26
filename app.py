@@ -5,7 +5,7 @@ import time
 import json
 import zipfile
 import shutil
-from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info,parser_file
+from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info,parser_file,extract_pages_by_keywords
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
 from utils_vis import plot_heatmap # 引入可视化
@@ -23,9 +23,9 @@ DIRS = {
     "upload": os.path.join(TEMP_DIR, "1_uploads"),
     "crop": os.path.join(TEMP_DIR, "2_cropped"),
     "raw": os.path.join(TEMP_DIR, "3_raw_data"),
-    "result": os.path.join(TEMP_DIR, "4_results")
+    "result": os.path.join(TEMP_DIR, "4_results"), 
+    "final": os.path.join(TEMP_DIR, "5_final")
 }
-
 # 初始化目录
 for d in DIRS.values():
     if not os.path.exists(d): os.makedirs(d)
@@ -59,9 +59,51 @@ if step == "1. 文档上传与裁剪":
     
     # --- Tab 1: 自动裁剪 ---
     with tab1:
-        st.markdown("上传原始文档，系统将自动识别并裁剪包含关键词（如“存在问题”）的章节。")
+        st.markdown("上传原始文档，系统将根据提取模式自动裁剪出关键页面。")
         uploaded_files = st.file_uploader("上传 PDF 文件", type=["pdf"], accept_multiple_files=True, key="auto_uploader")
-        keyword = st.text_input("章节关键词", value="存在问题")
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            # === 修改点：基于业务场景的选择 ===
+            crop_task_type = st.selectbox(
+                "选择要提取的数据类型", 
+                [
+                    "自然资源禀赋 (土地利用现状)", 
+                    "存在问题", 
+                    "整治潜力", 
+                    "子项目/项目汇总", 
+                    "空间布局",
+                    "自定义目录匹配", 
+                    "自定义全文搜索"
+                ]
+            )
+        
+        with col2:
+            # === 核心逻辑：根据选择自动预设参数 ===
+            default_kw = ""
+            algo_type = "TOC" # 默认目录匹配
+            
+            if "自然资源禀赋" in crop_task_type:
+                default_kw = r"(土地利用.*表|表.*土地利用.*表)"
+                algo_type = "Content" # 全文扫描
+            elif "存在问题" in crop_task_type:
+                default_kw = "问题"
+            elif "整治潜力" in crop_task_type:
+                default_kw = "潜力"
+            elif "子项目" in crop_task_type:
+                default_kw = "子项目" # 或者是 "项目"
+            elif "空间布局" in crop_task_type:
+                default_kw = "空间"
+            # 允许用户微调关键词
+            keyword = st.text_input("提取关键词 (支持正则)", value=default_kw)
+            
+            # 显示当前使用的算法提示
+            if algo_type == "Content" or crop_task_type == "自定义全文搜索":
+                st.caption("ℹ️ 模式：**全文关键词扫描** (适合跨页大表)")
+                use_content_mode = True
+            else:
+                st.caption("ℹ️ 模式：**目录章节匹配** (适合标准文本章节)")
+                use_content_mode = False
         
         if st.button("开始自动裁剪", type="primary"):
             if not uploaded_files:
@@ -80,22 +122,38 @@ if step == "1. 文档上传与裁剪":
                     info = extract_info(f.name)
                     clean_region_name = info["新文件名"]
                     
-                    # 2. 构造新文件名: 地区名_关键词.pdf (例如: 潮州-湘桥_问题.pdf)
-                    dst_name = f"{clean_region_name}_{keyword}.pdf"
+                    # 2. 构造新文件名 (带上任务类型标识，方便后续识别)
+                    # 简化后缀：自然资源禀赋 -> landuse, 存在问题 -> issue 等
+                    task_suffix = "data"
+                    if "自然资源" in crop_task_type: task_suffix = "landuse"
+                    elif "问题" in crop_task_type: task_suffix = "issue"
+                    elif "潜力" in crop_task_type: task_suffix = "potential"
+                    elif "项目" in crop_task_type: task_suffix = "project"
+                    elif "空间" in crop_task_type: task_suffix = "spatial"
+                    else: task_suffix = keyword.replace("*", "")[:5]
+                    
+                    dst_name = f"{clean_region_name}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
                     
-                    # 3. 执行裁剪
-                    if extract_section_to_pdf(src_path, dst_path, keyword): 
+                    # 3. 执行裁剪 (根据模式选择函数)
+                    is_ok = False
+                    
+                    if use_content_mode:
+                        # 全文扫描模式 (用于自然资源/土地利用表)
+                        is_ok = extract_pages_by_keywords(src_path, dst_path, keyword)
+                    else:
+                        # 目录匹配模式 (用于其他)
+                        is_ok = extract_section_to_pdf(src_path, dst_path, keyword)
+                    
+                    if is_ok: 
                         success_count += 1
-                        # 可选：显示重命名结果
-                        # st.caption(f"已保存为: {dst_name}")
                     
                     bar.progress((i + 1) / len(uploaded_files))
                 
                 if success_count == len(uploaded_files): 
                     st.success(f"✅ 全部处理完成！成功 {success_count} 个。")
                 else: 
-                    st.warning(f"⚠️ 成功 {success_count} 个，失败 {len(uploaded_files)-success_count} 个。")
+                    st.warning(f"⚠️ 成功 {success_count} 个，失败 {len(uploaded_files)-success_count} 个。建议尝试手动修复失败的文件。")
 
     # --- Tab 2: 手动裁剪 ---
     with tab2:
