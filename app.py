@@ -87,13 +87,13 @@ if step == "1. 文档上传与裁剪":
                 default_kw = r"(土地利用.*表|表.*土地利用.*表)"
                 algo_type = "Content" # 全文扫描
             elif "存在问题" in crop_task_type:
-                default_kw = "问题"
+                default_kw = "存在问题"
             elif "整治潜力" in crop_task_type:
-                default_kw = "潜力"
+                default_kw = "整治可行性分析"
             elif "子项目" in crop_task_type:
-                default_kw = "子项目" # 或者是 "项目"
+                default_kw = "子项目安排" # 或者是 "项目"
             elif "空间布局" in crop_task_type:
-                default_kw = "空间"
+                default_kw = "空间布局优化"
             # 允许用户微调关键词
             keyword = st.text_input("提取关键词 (支持正则)", value=default_kw)
             
@@ -120,7 +120,7 @@ if step == "1. 文档上传与裁剪":
                     
                     # 1. 提取信息
                     info = extract_info(f.name)
-                    clean_region_name = info["新文件名"]
+                    clean_region_name = info["文件名"]
                     
                     # 2. 构造新文件名 (带上任务类型标识，方便后续识别)
                     # 简化后缀：自然资源禀赋 -> landuse, 存在问题 -> issue 等
