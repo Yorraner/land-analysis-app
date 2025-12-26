@@ -4,9 +4,9 @@ import pandas as pd
 import shutil
 # 导入我们封装好的模块
 from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self
-from api_client import batch_process_via_coze
-from utils_parsers import process_raw_data
-from utils_fusion import unify_and_concatenate
+# from api_client import batch_process_via_coze
+# from utils_parsers import process_raw_data
+# from utils_fusion import unify_and_concatenate
 
 # === 页面配置 ===
 st.set_page_config(page_title="土地整治智能分析平台", layout="wide")
@@ -149,100 +149,100 @@ if step == "1. 上传与裁剪":
 # ========================================================
 # 2. 数据提取 (API)
 # ========================================================
-elif step == "2. 数据提取(API)":
-    st.header("🤖 步骤 2: 调用 AI 提取数据")
+# elif step == "2. 数据提取(API)":
+#     st.header("🤖 步骤 2: 调用 AI 提取数据")
     
-    files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
+#     files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
     
-    if not files:
-        st.warning("⚠️ 暂无已裁剪文件，请先完成步骤 1。")
-    else:
-        st.write(f"就绪文件: {len(files)} 个")
-        # 显示文件列表供确认
-        with st.expander("查看文件列表"):
-            st.write(files)
+#     if not files:
+#         st.warning("⚠️ 暂无已裁剪文件，请先完成步骤 1。")
+#     else:
+#         st.write(f"就绪文件: {len(files)} 个")
+#         # 显示文件列表供确认
+#         with st.expander("查看文件列表"):
+#             st.write(files)
         
-        if st.button("发送至扣子(Coze)进行分析"):
-            with st.spinner("正在请求 API..."):
-                file_paths = [os.path.join(DIRS["crop"], f) for f in files]
-                df_raw = batch_process_via_coze(file_paths)
+#         if st.button("发送至扣子(Coze)进行分析"):
+#             with st.spinner("正在请求 API..."):
+#                 file_paths = [os.path.join(DIRS["crop"], f) for f in files]
+#                 df_raw = batch_process_via_coze(file_paths)
                 
-                save_path = os.path.join(DIRS["raw"], "coze_raw_output.csv")
-                df_raw.to_csv(save_path, index=False, encoding='utf-8-sig')
+#                 save_path = os.path.join(DIRS["raw"], "coze_raw_output.csv")
+#                 df_raw.to_csv(save_path, index=False, encoding='utf-8-sig')
                 
-                st.success("✅ 数据提取完成！")
-                st.dataframe(df_raw.head())
+#                 st.success("✅ 数据提取完成！")
+#                 st.dataframe(df_raw.head())
 
-# ========================================================
-# 3. 数据解析
-# ========================================================
-elif step == "3. 数据解析":
-    st.header("🧹 步骤 3: 结构化解析")
+# # ========================================================
+# # 3. 数据解析
+# # ========================================================
+# elif step == "3. 数据解析":
+#     st.header("🧹 步骤 3: 结构化解析")
     
-    raw_file = os.path.join(DIRS["raw"], "coze_raw_output.csv")
-    if not os.path.exists(raw_file):
-        st.warning("请先完成步骤 2 获取原始数据。")
-    else:
-        df_raw = pd.read_csv(raw_file)
-        st.write("原始数据预览:", df_raw.head(3))
+#     raw_file = os.path.join(DIRS["raw"], "coze_raw_output.csv")
+#     if not os.path.exists(raw_file):
+#         st.warning("请先完成步骤 2 获取原始数据。")
+#     else:
+#         df_raw = pd.read_csv(raw_file)
+#         st.write("原始数据预览:", df_raw.head(3))
         
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            parse_type = st.selectbox("选择解析模式", ["存在问题", "整治潜力", "项目汇总"])
+#         col1, col2 = st.columns([1, 1])
+#         with col1:
+#             parse_type = st.selectbox("选择解析模式", ["存在问题", "整治潜力", "项目汇总"])
         
-        if col2.button("执行解析"):
-            parsed_df = process_raw_data(df_raw, parse_type)
+#         if col2.button("执行解析"):
+#             parsed_df = process_raw_data(df_raw, parse_type)
             
-            # 合并地区列
-            final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
+#             # 合并地区列
+#             final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
             
-            # 存为中间结果
-            out_name = f"parsed_{parse_type}.csv"
-            final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
+#             # 存为中间结果
+#             out_name = f"parsed_{parse_type}.csv"
+#             final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
             
-            st.success(f"解析成功！已保存为 {out_name}")
-            st.dataframe(final_df.head())
+#             st.success(f"解析成功！已保存为 {out_name}")
+#             st.dataframe(final_df.head())
 
-# ========================================================
-# 4. 数据融合
-# ========================================================
-elif step == "4. 数据融合":
-    st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)")
+# # ========================================================
+# # 4. 数据融合
+# # ========================================================
+# elif step == "4. 数据融合":
+#     st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)")
     
-    csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
-    selected = st.multiselect("选择要融合的数据表", csvs, default=csvs)
+#     csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
+#     selected = st.multiselect("选择要融合的数据表", csvs, default=csvs)
     
-    if st.button("开始融合") and selected:
-        matrices, maps, names = [], [], []
+#     if st.button("开始融合") and selected:
+#         matrices, maps, names = [], [], []
         
-        for f in selected:
-            path = os.path.join(DIRS["result"], f)
-            df = pd.read_csv(path)
-            # 假设第1列是地区，后面是特征
-            region_col = df.columns[0]
-            df = df.set_index(region_col)
-            # 只取数值列，忽略文字说明列
-            df_num = df.select_dtypes(include=['number']).fillna(0)
+#         for f in selected:
+#             path = os.path.join(DIRS["result"], f)
+#             df = pd.read_csv(path)
+#             # 假设第1列是地区，后面是特征
+#             region_col = df.columns[0]
+#             df = df.set_index(region_col)
+#             # 只取数值列，忽略文字说明列
+#             df_num = df.select_dtypes(include=['number']).fillna(0)
             
-            matrices.append(df_num.values)
-            maps.append({name: i for i, name in enumerate(df_num.index)})
-            names.append(f.replace("parsed_", "").replace(".csv", ""))
+#             matrices.append(df_num.values)
+#             maps.append({name: i for i, name in enumerate(df_num.index)})
+#             names.append(f.replace("parsed_", "").replace(".csv", ""))
         
-        regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
+#         regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
         
-        if len(regions) > 0:
-            st.success(f"融合完成！共 {len(regions)} 个地区，{X_final.shape[1]} 个特征。")
+#         if len(regions) > 0:
+#             st.success(f"融合完成！共 {len(regions)} 个地区，{X_final.shape[1]} 个特征。")
             
-            # 展示切片信息
-            st.json(slices)
+#             # 展示切片信息
+#             st.json(slices)
             
-            # 导出
-            final_df = pd.DataFrame(X_final, index=regions)
-            st.dataframe(final_df.head())
-            st.download_button(
-                "📥 下载最终矩阵 CSV",
-                final_df.to_csv(encoding='utf-8-sig'),
-                "final_matrix.csv"
-            )
-        else:
-            st.error("融合失败：所选数据表之间没有公共地区。")
+#             # 导出
+#             final_df = pd.DataFrame(X_final, index=regions)
+#             st.dataframe(final_df.head())
+#             st.download_button(
+#                 "📥 下载最终矩阵 CSV",
+#                 final_df.to_csv(encoding='utf-8-sig'),
+#                 "final_matrix.csv"
+#             )
+#         else:
+#             st.error("融合失败：所选数据表之间没有公共地区。")
