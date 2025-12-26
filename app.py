@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import pandas as pd
+import time
+import json
 import shutil
 from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
@@ -169,7 +171,7 @@ elif step == "2. 数据提取(API)":
         st.subheader("2️⃣ 开始提取")
         col1, col2 = st.columns([1, 1])
         with col1:
-            task_type = st.selectbox("选择分析任务类型", ["整治潜力", "土地利用现状", "存在问题", "项目汇总"])
+            task_type = st.selectbox("选择分析任务类型", ["整治潜力", "土地利用现状", "存在问题", "子项目"])
         with col2:
             use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
             
