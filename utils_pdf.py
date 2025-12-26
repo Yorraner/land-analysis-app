@@ -254,8 +254,7 @@ def extract_info(filename):
              # 保护如“南区”这样的短名
             if short_district == "南区" and suffix == "区": continue
             short_district = short_district.replace(suffix, "")
-            break
-            
+            break  
     # 3. 单元简写
     short_unit = unit
     for suffix in ["实施单元", "单元", "镇", "街道", "片区", "实施方案"]:

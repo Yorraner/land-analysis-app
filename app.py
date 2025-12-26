@@ -9,6 +9,7 @@ from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extra
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
 from utils_vis import plot_heatmap # 引入可视化
+from utils_parse import parse_land_use_row
 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
@@ -196,7 +197,6 @@ if step == "1. 文档上传与裁剪":
                         else: st.error("❌ 裁剪失败")
 
     st.divider()
-    # === 新增：文件查看与下载区域 ===
     st.subheader("📂 结果文件管理")
     
     cropped_files = []
@@ -207,6 +207,21 @@ if step == "1. 文档上传与裁剪":
         # 1. 列表展示
         st.dataframe(pd.DataFrame(cropped_files, columns=["已生成的文件名"]), use_container_width=True, height=200)
         
+        with st.expander("🗑️ 管理/删除已处理文件"):
+            files_to_delete = st.multiselect("选择要删除的文件 (支持多选)", cropped_files)
+            if st.button("确认删除选中文件"):
+                if files_to_delete:
+                    for f_del in files_to_delete:
+                        path_to_del = os.path.join(DIRS["crop"], f_del)
+                        try:
+                            os.remove(path_to_del)
+                        except Exception as e:
+                            st.error(f"删除失败 {f_del}: {e}")
+                    st.success(f"已删除 {len(files_to_delete)} 个文件")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("请先选择要删除的文件")
         col_d1, col_d2 = st.columns(2)
         
         # 2. 批量打包下载功能
@@ -267,11 +282,11 @@ elif step == "2. 大模型数据获取":
         st.subheader("2️⃣ 开始提取")
         col1, col2 = st.columns([1, 1])
         with col1:
-            task_type = st.selectbox("选择分析任务类型", ["整治潜力", "土地利用现状", "存在问题", "子项目"])
+            task_type = st.selectbox("选择分析任务类型", [ "自然资源禀赋", "整治潜力","存在问题", "子项目","空间布局"])
         with col2:
             use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
             
-        if st.button("🚀 发送至扣子(Coze)进行分析", type="primary"):
+        if st.button("🚀 大模型分析", type="primary"):
             # 初始化结果容器
             results = []
             progress_bar = st.progress(0)
@@ -297,7 +312,6 @@ elif step == "2. 大模型数据获取":
                     status_expander = st.expander(f"🔄 正在处理: {region_name} ...", expanded=True)
                     with status_expander:
                         st.write(f"📄 文件: `{file_name}`")
-                        
                         # --- 调用 API ---
                         raw_data = None
                         try:
@@ -372,10 +386,19 @@ elif step == "3. 数据解析":
         
         col1, col2 = st.columns([1, 1])
         with col1:
-            parse_type = st.selectbox("选择解析模式", ["存在问题", "整治潜力", "项目汇总"])
+            parse_type = st.selectbox("选择解析模式", ["自然资源禀赋","存在问题", "整治潜力", "子项目","空间布局"])
         
         if col2.button("执行解析"):
-            parsed_df = process_raw_data(df_raw, parse_type)
+            if parse_type == "自然资源禀赋":
+                parsed_df_data_1 = parse_land_use_row(df_raw)
+            elif parse_type == "存在问题":
+                from utils_parse import batch_issue_data_parse
+                parsed_df_data_1 = batch_issue_data_parse(df_raw)
+            elif parse_type == "整治潜力":
+                from utils_parse import parse_potential_row
+                parsed_df_data_1 = parse_potential_row(df_raw)
+            elif parse_type == "子项目":        
+            
             
             # 合并地区列
             final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
