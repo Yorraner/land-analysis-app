@@ -400,15 +400,15 @@ elif step == "3. 数据解析":
             elif parse_type == "子项目":        
             
             
-            # 合并地区列
-            final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
+            # # 合并地区列
+            # final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
             
-            # 存为中间结果
-            out_name = f"parsed_{parse_type}.csv"
-            final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
+            # # 存为中间结果
+            # out_name = f"parsed_{parse_type}.csv"
+            # final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
             
-            st.success(f"解析成功！已保存为 {out_name}")
-            st.dataframe(final_df.head())
+            # st.success(f"解析成功！已保存为 {out_name}")
+            # st.dataframe(final_df.head())
 
 # # ========================================================
 # # 4. 数据融合
