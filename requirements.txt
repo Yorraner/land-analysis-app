@@ -1,0 +1,14 @@
+streamlit
+pandas
+numpy
+pymupdf
+pikepdf
+openpyxl
+seaborn
+matplotlib
+coze
+cozepy
+PyPDF2
+re
+fitz
+tqdm
