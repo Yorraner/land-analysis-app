@@ -5,7 +5,7 @@ import time
 import json
 import zipfile
 import shutil
-from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info
+from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info,parser_file
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
@@ -56,9 +56,9 @@ if step == "1. 文档上传与裁剪":
     
     # --- Tab 1: 自动裁剪 ---
     with tab1:
-        st.markdown("上传原始文档，系统将自动识别并裁剪包含关键词（如“问题”）的章节。")
+        st.markdown("上传原始文档，系统将自动识别并裁剪包含关键词（如“存在问题”）的章节。")
         uploaded_files = st.file_uploader("上传 PDF 文件", type=["pdf"], accept_multiple_files=True, key="auto_uploader")
-        keyword = st.text_input("章节关键词", value="问题")
+        keyword = st.text_input("章节关键词", value="存在问题")
         
         if st.button("开始自动裁剪", type="primary"):
             if not uploaded_files:
@@ -73,7 +73,6 @@ if step == "1. 文档上传与裁剪":
                     
                     status.text(f"正在处理: {f.name}...")
                     
-                    # === 修改点：使用 extract_info 进行重命名 ===
                     # 1. 提取信息
                     info = extract_info(f.name)
                     clean_region_name = info["新文件名"]
@@ -195,12 +194,12 @@ elif step == "2. 大模型数据获取":
         st.subheader("1️⃣ 文件名清洗与地区识别")
         file_info_list = []
         for f in files:
-            info = extract_info(f) # 调用 utils_pdf 中的新函数
+            info = parser_file(f) # 调用 utils_pdf 中的新函数
             file_info_list.append(info)
         
         info_df = pd.DataFrame(file_info_list)
-        st.dataframe(info_df[["原始文件名", "新文件名", "城市", "地区/县"]], use_container_width=True)
-        
+        st.dataframe(info_df[["文件名", "城市", "地区/县","详细单元"]], use_container_width=True)
+
         st.divider()
         
         # 3. 任务配置
@@ -220,16 +219,14 @@ elif step == "2. 大模型数据获取":
             # 初始化客户端
             client = None
             if not use_mock:
-                client = CozeClient() # 需在 api_client.py 配好 Token
+                client = CozeClient() 
                 workflow_id = WORKFLOW_CONFIG.get(task_type)
             
             # 开始循环处理
             for i, info in enumerate(file_info_list):
                 file_name = info["原始文件名"]
                 # 这里的“新文件名”实际上就是步骤1生成的规范化文件名 (例如: 潮州-湘桥_问题)
-                # 我们可以再次处理一下，或者直接用文件名作为地区ID
-                # 因为步骤1已经重命名过了，这里的文件名已经是 "潮州-湘桥_问题.pdf"
-                # extract_info 会把它解析为 "潮州-湘桥" (去掉了后缀)
+
                 region_name = info["新文件名"] 
                 
                 file_path = os.path.join(DIRS["crop"], file_name)

@@ -4,9 +4,7 @@ import time
 import json
 import pandas as pd
 
-# === 配置区域 ===
-# 请在此处填入您的真实信息，或者在 Streamlit Secrets 中配置
-DEFAULT_COZE_TOKEN = "pat_wDoNtBqcA33CGGOCZBlrsPuRiwRfkB6bxoGGgzvmryhDft97drG7iHG9OJNiprp8"
+DEFAULT_COZE_TOKEN = "pat_XVznFiiHmr09YOp51Pta9rss6fuMKtL8IJMypv6JQYDbEbrfMEU70OLLshD9Cjvk"
 COZE_CN_BASE_URL = "https://api.coze.cn"
 
 

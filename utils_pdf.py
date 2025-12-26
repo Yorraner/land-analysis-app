@@ -187,6 +187,35 @@ def extract_section_to_pdf_self(pdf_path, start, end, output_path):
         # 确保关闭文件句柄
         if src_doc: src_doc.close()
         if out_doc: out_doc.close()
+
+def parser_file(filename):
+    """
+    解析文件名，返回字典。
+    """
+    city = "未知城市"
+    district = "-"
+    unit = ""
+    
+    # 1. 强力清洗：去掉 .pdf 和所有可能的任务后缀
+    clean_name = filename.replace(".pdf", "")
+    
+    if '_' in clean_name:
+        clean_name = clean_name.split('_')[0]
+    
+    # === 策略 A: 处理短横线格式 (City-District) ===
+    if '-' in clean_name:
+        parts = clean_name.split('-')
+        if len(parts) >= 1: city = parts[0]
+        if len(parts) >= 2: district = parts[1]
+        if len(parts) >= 3: unit = parts[2]
+            
+        return {
+            "原始文件名": filename,
+            "文件名": clean_name,  # 直接使用清洗后的名字
+            "城市": city,
+            "地区/县": district,
+            "详细单元": unit if unit else "无"
+        }
         
 def extract_info(filename):
     """解析单个文件名，返回字典"""
@@ -240,7 +269,7 @@ def extract_info(filename):
 
     return {
         "原始文件名": filename,
-        "新文件名": new_name, # 这里不带 .pdf 后缀，方便直接做地区ID
+        "文件名": new_name, # 这里不带 .pdf 后缀，方便直接做地区ID
         "城市": city,
         "地区/县": district,
         "详细单元": unit if unit else "无"
