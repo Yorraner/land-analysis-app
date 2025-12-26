@@ -10,4 +10,3 @@ coze
 cozepy
 PyPDF2
 tqdm
-zipfile
