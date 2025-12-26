@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import time
 import json
+import zipfile
 import shutil
 from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
@@ -135,18 +136,53 @@ if step == "1. 文档上传与裁剪":
                         else: st.error("❌ 裁剪失败")
 
     st.divider()
-    # 查看已裁剪文件
+    # === 新增：文件查看与下载区域 ===
+    st.subheader("📂 结果文件管理")
+    
     cropped_files = []
     if os.path.exists(DIRS["crop"]):
         cropped_files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
     
     if cropped_files:
-        with st.expander(f"📂 查看已处理文件 ({len(cropped_files)} 个)"):
-            st.dataframe(pd.DataFrame(cropped_files, columns=["文件名"]), height=200)
+        # 1. 列表展示
+        st.dataframe(pd.DataFrame(cropped_files, columns=["已生成的文件名"]), use_container_width=True, height=200)
+        
+        col_d1, col_d2 = st.columns(2)
+        
+        # 2. 批量打包下载功能
+        with col_d1:
+            zip_path = os.path.join(TEMP_DIR, "cropped_files.zip")
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for f in cropped_files:
+                    zipf.write(os.path.join(DIRS["crop"], f), f)
+            
+            with open(zip_path, "rb") as f:
+                st.download_button(
+                    label="📦 打包下载所有文件 (.zip)",
+                    data=f,
+                    file_name="cropped_files.zip",
+                    mime="application/zip",
+                    type="primary"
+                )
+        
+        # 3. 单文件下载功能
+        with col_d2:
+            selected_download = st.selectbox("或者选择单个文件下载:", cropped_files)
+            if selected_download:
+                file_path = os.path.join(DIRS["crop"], selected_download)
+                with open(file_path, "rb") as f:
+                    st.download_button(
+                        label=f"📄 下载 {selected_download}",
+                        data=f,
+                        file_name=selected_download,
+                        mime="application/pdf"
+                    )
+    else:
+        st.info("暂无处理好的文件，请先执行裁剪操作。")
 # ========================================================
 # 2. 数据提取 (API)
 # ========================================================
-elif step == "2. 数据提取(API)":
+elif step == "2. 数据获取":
     st.header("🤖 步骤 2: 调用 AI 提取数据")
     
     # 1. 扫描文件
@@ -268,73 +304,79 @@ elif step == "2. 数据提取(API)":
 # # ========================================================
 # # 3. 数据解析
 # # ========================================================
-# elif step == "3. 数据解析":
-#     st.header("🧹 步骤 3: 结构化解析")
+elif step == "3. 数据解析":
+    st.header("🧹 步骤 3: 结构化解析")
     
-#     raw_file = os.path.join(DIRS["raw"], "coze_raw_output.csv")
-#     if not os.path.exists(raw_file):
-#         st.warning("请先完成步骤 2 获取原始数据。")
-#     else:
-#         df_raw = pd.read_csv(raw_file)
-#         st.write("原始数据预览:", df_raw.head(3))
+    raw_file = os.path.join(DIRS["raw"], "coze_raw_output.csv")
+    if not os.path.exists(raw_file):
+        st.warning("请先完成步骤 2 获取原始数据。")
+    else:
+        df_raw = pd.read_csv(raw_file)
+        st.write("原始数据预览:", df_raw.head(3))
         
-#         col1, col2 = st.columns([1, 1])
-#         with col1:
-#             parse_type = st.selectbox("选择解析模式", ["存在问题", "整治潜力", "项目汇总"])
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            parse_type = st.selectbox("选择解析模式", ["存在问题", "整治潜力", "项目汇总"])
         
-#         if col2.button("执行解析"):
-#             parsed_df = process_raw_data(df_raw, parse_type)
+        if col2.button("执行解析"):
+            parsed_df = process_raw_data(df_raw, parse_type)
             
-#             # 合并地区列
-#             final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
+            # 合并地区列
+            final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
             
-#             # 存为中间结果
-#             out_name = f"parsed_{parse_type}.csv"
-#             final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
+            # 存为中间结果
+            out_name = f"parsed_{parse_type}.csv"
+            final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
             
-#             st.success(f"解析成功！已保存为 {out_name}")
-#             st.dataframe(final_df.head())
+            st.success(f"解析成功！已保存为 {out_name}")
+            st.dataframe(final_df.head())
 
 # # ========================================================
 # # 4. 数据融合
 # # ========================================================
-# elif step == "4. 数据融合":
-#     st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)")
+elif step == "4. 数据融合":
+    st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)")
     
-#     csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
-#     selected = st.multiselect("选择要融合的数据表", csvs, default=csvs)
+    csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
+    selected = st.multiselect("选择要融合的数据表", csvs, default=csvs)
     
-#     if st.button("开始融合") and selected:
-#         matrices, maps, names = [], [], []
+    if st.button("开始融合") and selected:
+        matrices, maps, names = [], [], []
         
-#         for f in selected:
-#             path = os.path.join(DIRS["result"], f)
-#             df = pd.read_csv(path)
-#             # 假设第1列是地区，后面是特征
-#             region_col = df.columns[0]
-#             df = df.set_index(region_col)
-#             # 只取数值列，忽略文字说明列
-#             df_num = df.select_dtypes(include=['number']).fillna(0)
+        for f in selected:
+            path = os.path.join(DIRS["result"], f)
+            df = pd.read_csv(path)
+            # 假设第1列是地区，后面是特征
+            region_col = df.columns[0]
+            df = df.set_index(region_col)
+            # 只取数值列，忽略文字说明列
+            df_num = df.select_dtypes(include=['number']).fillna(0)
             
-#             matrices.append(df_num.values)
-#             maps.append({name: i for i, name in enumerate(df_num.index)})
-#             names.append(f.replace("parsed_", "").replace(".csv", ""))
+            matrices.append(df_num.values)
+            maps.append({name: i for i, name in enumerate(df_num.index)})
+            names.append(f.replace("parsed_", "").replace(".csv", ""))
         
-#         regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
+        regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
         
-#         if len(regions) > 0:
-#             st.success(f"融合完成！共 {len(regions)} 个地区，{X_final.shape[1]} 个特征。")
+        if len(regions) > 0:
+            st.success(f"融合完成！共 {len(regions)} 个地区，{X_final.shape[1]} 个特征。")
             
-#             # 展示切片信息
-#             st.json(slices)
+            # 展示切片信息
+            st.json(slices)
             
-#             # 导出
-#             final_df = pd.DataFrame(X_final, index=regions)
-#             st.dataframe(final_df.head())
-#             st.download_button(
-#                 "📥 下载最终矩阵 CSV",
-#                 final_df.to_csv(encoding='utf-8-sig'),
-#                 "final_matrix.csv"
-#             )
-#         else:
-#             st.error("融合失败：所选数据表之间没有公共地区。")
+            # 导出
+            final_df = pd.DataFrame(X_final, index=regions)
+            st.dataframe(final_df.head())
+            st.download_button(
+                "📥 下载最终矩阵 CSV",
+                final_df.to_csv(encoding='utf-8-sig'),
+                "final_matrix.csv"
+            )
+        else:
+            st.error("融合失败：所选数据表之间没有公共地区。")
+            
+# # ========================================================
+elif step == "5. 数据分类与导出":
+    # 调用模型进行分类，还可以添加专家权重等功能
+    st.header("📊 步骤 5: 数据分类与导出")
+    st.info("此步骤功能待开发，敬请期待！")
