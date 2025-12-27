@@ -60,6 +60,75 @@ TASK_DICT={
     "空间布局":"spatial"
 }
 
+def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", key_prefix="common"):
+    """
+    通用文件管理组件：列表、预览、下载、删除
+    """
+    st.divider()
+    st.subheader(f"📂 {title}")
+    
+    if not os.path.exists(dir_path):
+        st.info("暂无文件生成。")
+        return
+    # scan files
+    files = [f for f in os.listdir(dir_path) if f.endswith(file_ext)]
+    files.sort(key=lambda x: os.path.getmtime(os.path.join(dir_path, x)), reverse=True) # 按时间倒序
+
+    if files:
+        # 1. file table display
+        df_files = pd.DataFrame(files, columns=["文件名"])
+        st.dataframe(df_files, use_container_width=True, height=150)
+        
+        # 2. file delete
+        with st.expander("🗑️ 管理/删除文件"):
+            files_to_del = st.multiselect("选择要删除的文件", files, key=f"{key_prefix}_del_multi")
+            if st.button("确认删除", key=f"{key_prefix}_del_btn"):
+                for f in files_to_del:
+                    try: os.remove(os.path.join(dir_path, f))
+                    except: pass
+                st.success(f"已删除 {len(files_to_del)} 个文件")
+                time.sleep(1)
+                st.rerun()
+
+        # 3. preview & single download
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            sel_file = st.selectbox("选择文件预览:", files, key=f"{key_prefix}_sel")
+            if sel_file:
+                file_path = os.path.join(dir_path, sel_file)
+                if file_ext == ".csv":
+                    try:
+                        try: df = pd.read_csv(file_path)
+                        except: df = pd.read_csv(file_path, encoding='gbk')
+                        st.write(f"📊 `{sel_file}` :")
+                        st.dataframe(df.head())
+                    except Exception as e:
+                        st.error(f"读取失败: {e}")
+                elif file_ext == ".pdf":
+                    st.caption("PDF 文件不支持直接预览，请下载查看。")
+        with c2:
+            if sel_file:
+                file_path = os.path.join(dir_path, sel_file)
+                with open(file_path, "rb") as f:
+                    mime_type = "text/csv" if file_ext == ".csv" else "application/pdf"
+                    st.download_button(
+                        label=f"📥 下载 {sel_file}",
+                        data=f,
+                        file_name=sel_file,
+                        mime=mime_type,
+                        key=f"{key_prefix}_down_btn",
+                        type="primary"
+                    )           
+        # 4. package download
+        zip_name = f"all_{key_prefix}_files.zip"
+        zip_path = os.path.join(TEMP_DIR, zip_name)
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            for f in files:
+                zf.write(os.path.join(dir_path, f), f)
+        with open(zip_path, "rb") as f:
+            st.download_button(f"📦 打包下载全部 ({len(files)}个)", f, zip_name, "application/zip", key=f"{key_prefix}_zip")        
+    else:
+        st.info(f"目录为空 ({dir_path})")
 # ========================================================
 # 1. 上传与裁剪
 # ========================================================
@@ -79,7 +148,6 @@ if step == "1. 文档上传与裁剪":
             crop_task_type = st.selectbox(
                 "选择要提取的数据类型", 
                 list(TASK_DICT.keys()) + ["自定义目录匹配", "自定义全文搜索"])
-        
         with col2:
             # === 核心逻辑：根据选择自动预设参数 ===
             default_kw = ""
@@ -117,7 +185,6 @@ if step == "1. 文档上传与裁剪":
                 for i, f in enumerate(uploaded_files):
                     src_path = os.path.join(DIRS["upload"], f.name)
                     with open(src_path, "wb") as buffer: buffer.write(f.getbuffer())
-                    
                     status.text(f"正在处理: {f.name}...")
                     
                     # 1. 提取信息
@@ -132,7 +199,6 @@ if step == "1. 文档上传与裁剪":
                     else:
                         task_suffix = keyword.replace("*", "")[:5]
 
-                    
                     dst_name = f"{clean_region_name}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
                     
@@ -294,7 +360,6 @@ elif step == "2. 大模型数据获取":
             if not use_mock:
                 client = CozeClient() 
                 workflow_id = WORKFLOW_CONFIG.get(task_type)
-            
             # 开始循环处理
             for i, info in enumerate(file_info_list):
                 file_name = info["原始文件名"]
@@ -317,24 +382,20 @@ elif step == "2. 大模型数据获取":
                                 raw_data = get_mock_data(file_path, task_type)
                                 st.info("✅ 模拟数据获取成功")
                             else:
-                                if not workflow_id:
-                                    st.error(f"❌ 未配置 {task_type} 的 Workflow ID")
-                                else:
-                                    st.write("📤 上传文件中...")
-                                    file_id = client.upload_file(file_path)
-                                    if file_id:
-                                        st.write("🤖 AI 思考中...")
-                                        raw_data = client.run_workflow(workflow_id, file_id)
-                                        if raw_data:
-                                            st.success("✅ 工作流执行成功")
-                                        else:
-                                            st.error("❌ 工作流返回为空")
+                                st.write("📤 上传文件中...")
+                                file_id = client.upload_file(file_path)
+                                if file_id:
+                                    st.write("🤖 AI 思考中...")
+                                    raw_data = client.run_workflow(workflow_id, file_id)
+                                    if raw_data:
+                                        st.success("✅ 工作流执行成功")
                                     else:
-                                        st.error("❌ 上传失败")
-                                    time.sleep(1) # 限流保护
+                                        st.error("❌ 工作流返回为空")
+                                else:
+                                    st.error("❌ 上传失败")
+                                time.sleep(1) # 限流保护
                         except Exception as e:
                             st.error(f"❌ 发生异常: {e}")
-                        
                         # --- 显示输出内容 ---
                         if raw_data:
                             st.markdown("**🔎 输出内容预览:**")
@@ -374,12 +435,12 @@ elif step == "2. 大模型数据获取":
         if os.path.exists(DIRS["raw"]):
             coze_files = [f for f in os.listdir(DIRS["raw"]) if f.endswith(".csv")]
         if coze_files:
-            # 2. 显示文件列表
+            # 2. file list display
             st.dataframe(pd.DataFrame(coze_files, columns=["大模型解析生成的数据文件"]), use_container_width=True)
             
             col_preview, col_down = st.columns([2, 1])
             with col_preview:
-                # 3. 文件预览功能
+                # 3. file preview
                 selected_preview = st.selectbox("选择文件进行预览:", coze_files, key="preview_sel")
                 if selected_preview:
                     preview_path = os.path.join(DIRS["raw"], selected_preview)
@@ -390,7 +451,7 @@ elif step == "2. 大模型数据获取":
                     except Exception as e:
                         st.error(f"读取失败: {e}")
             with col_down:
-                # 4. 下载按钮
+                # 4. download 
                 if selected_preview:
                     preview_path = os.path.join(DIRS["raw"], selected_preview)
                     with open(preview_path, "rb") as f:
@@ -425,7 +486,7 @@ elif step == "3. 数据解析":
         st.write(f"📂 读取数据源: `{raw_filename}`")
         st.write("原始数据预览:", df_raw.head(3))
         
-        if col2.button("执行解析", type="primary"):
+        if col2.button("数据解析", type="primary"):
             # 1. 调用 utils_parsers 中的处理函数
             # process_raw_data 会返回纯特征数据的 DataFrame (不含地区列)
             parsed_df = process_raw_data(df_raw, parse_type)
@@ -448,14 +509,8 @@ elif step == "3. 数据解析":
             st.success(f"✅ 解析成功！结果已保存至: {out_name}")
             st.dataframe(final_df.head())
             
-            # 提供下载
-            csv_data = final_df.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button(
-                label="📥 下载解析结果 CSV",
-                data=csv_data,
-                file_name=out_name,
-                mime="text/csv"
-            )
+    render_file_manager(DIRS["result"], title="已解析的结构化数据", file_ext=".csv", key_prefix="step3")
+    
 # # ========================================================
 # # 4. 数据融合
 # # ========================================================
@@ -561,7 +616,8 @@ elif step == "4. 数据融合&展示":
                         st.warning("提示：请检查 utils_fusion.py 中的 preprocess_X 索引是否与当前数据的列顺序匹配。")
                 else:
                     st.error("融合失败：所选数据表之间没有公共地区。")
-
+    # 这里展示的是 result 目录下的所有文件（包含 Step 3 的解析文件和 Step 4 的矩阵文件）               
+    render_file_manager(DIRS["result"], title="融合及中间数据管理", file_ext=".csv", key_prefix="step4")
 # ========================================================
 # 5. 数据分类与导出
 # ========================================================
@@ -651,3 +707,6 @@ elif step == "5. 数据分类与导出":
                 )
             except Exception as e:
                 st.error(f"分析出错: {e}")
+                
+    # === 展示文件管理 ===
+    render_file_manager(DIRS["final"], title="最终分类结果", file_ext=".csv", key_prefix="step5")
