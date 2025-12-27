@@ -428,42 +428,42 @@ elif step == "2. 大模型数据获取":
                 st.write(f"数据已保存至: `{save_path}`")
                 st.dataframe(df_result.head())
             
-        # 保存文件可视化 & 下载
-        st.divider()
-        st.subheader("📂 结果文件管理")
-        coze_files = []
-        if os.path.exists(DIRS["raw"]):
-            coze_files = [f for f in os.listdir(DIRS["raw"]) if f.endswith(".csv")]
-        if coze_files:
-            # 2. file list display
-            st.dataframe(pd.DataFrame(coze_files, columns=["大模型解析生成的数据文件"]), use_container_width=True)
-            
-            col_preview, col_down = st.columns([2, 1])
-            with col_preview:
-                # 3. file preview
-                selected_preview = st.selectbox("选择文件进行预览:", coze_files, key="preview_sel")
-                if selected_preview:
-                    preview_path = os.path.join(DIRS["raw"], selected_preview)
-                    try:
-                        pre_df = pd.read_csv(preview_path)
-                        st.write(f"📊 `{selected_preview}` 数据预览 (前 5 行):")
-                        st.dataframe(pre_df.head())
-                    except Exception as e:
-                        st.error(f"读取失败: {e}")
-            with col_down:
-                # 4. download 
-                if selected_preview:
-                    preview_path = os.path.join(DIRS["raw"], selected_preview)
-                    with open(preview_path, "rb") as f:
-                        st.download_button(
-                            label=f"📥 下载 {selected_preview}",
-                            data=f,
-                            file_name=selected_preview,
-                            mime="text/csv",
-                            type="primary"
-                        )
-        else:
-            st.info("暂无生成的原始数据文件。")
+    # 保存文件可视化 & 下载
+    st.divider()
+    st.subheader("📂 结果文件管理")
+    coze_files = []
+    if os.path.exists(DIRS["raw"]):
+        coze_files = [f for f in os.listdir(DIRS["raw"]) if f.endswith(".csv")]
+    if coze_files:
+        # 2. file list display
+        st.dataframe(pd.DataFrame(coze_files, columns=["大模型解析生成的数据文件"]), use_container_width=True)
+        
+        col_preview, col_down = st.columns([2, 1])
+        with col_preview:
+            # 3. file preview
+            selected_preview = st.selectbox("选择文件进行预览:", coze_files, key="preview_sel")
+            if selected_preview:
+                preview_path = os.path.join(DIRS["raw"], selected_preview)
+                try:
+                    pre_df = pd.read_csv(preview_path)
+                    st.write(f"📊 `{selected_preview}` 数据预览 (前 5 行):")
+                    st.dataframe(pre_df.head())
+                except Exception as e:
+                    st.error(f"读取失败: {e}")
+        with col_down:
+            # 4. download 
+            if selected_preview:
+                preview_path = os.path.join(DIRS["raw"], selected_preview)
+                with open(preview_path, "rb") as f:
+                    st.download_button(
+                        label=f"📥 下载 {selected_preview}",
+                        data=f,
+                        file_name=selected_preview,
+                        mime="text/csv",
+                        type="primary"
+                    )
+    else:
+        st.info("暂无生成的原始数据文件。")
              
             
 # # ========================================================
@@ -706,7 +706,6 @@ elif step == "5. 数据分类与导出":
                     "text/csv"
                 )
             except Exception as e:
-                st.error(f"分析出错: {e}")
-                
+                st.error(f"分析出错: {e}")        
     # === 展示文件管理 ===
     render_file_manager(DIRS["final"], title="最终分类结果", file_ext=".csv", key_prefix="step5")
