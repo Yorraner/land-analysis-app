@@ -335,6 +335,8 @@ def extract_pages_by_keywords(pdf_path, output_path, keyword_pattern_str):
     finally:
         if src_doc: src_doc.close()
         if out_doc: out_doc.close()
+
+
         
 def dict_save2csv(data: dict, save_path: str):
     """

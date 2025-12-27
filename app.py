@@ -10,7 +10,7 @@ from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, \
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
 from utils_vis import plot_heatmap # 引入可视化
-from utils_parse import parse_land_use_row
+from utils_parse import process_raw_data
 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
@@ -78,16 +78,7 @@ if step == "1. 文档上传与裁剪":
             # === 修改点：基于业务场景的选择 ===
             crop_task_type = st.selectbox(
                 "选择要提取的数据类型", 
-                [
-                    "自然资源禀赋 (土地利用现状)", 
-                    "存在问题", 
-                    "整治潜力", 
-                    "子项目/项目汇总", 
-                    "空间布局",
-                    "自定义目录匹配", 
-                    "自定义全文搜索"
-                ]
-            )
+                list(TASK_DICT.keys()) + ["自定义目录匹配", "自定义全文搜索"])
         
         with col2:
             # === 核心逻辑：根据选择自动预设参数 ===
@@ -136,12 +127,11 @@ if step == "1. 文档上传与裁剪":
                     # 2. 构造新文件名 (带上任务类型标识，方便后续识别)
                     # 简化后缀：自然资源禀赋 -> landuse, 存在问题 -> issue 等
                     task_suffix = "data"
-                    if "自然资源" in crop_task_type: task_suffix = "landuse"
-                    elif "问题" in crop_task_type: task_suffix = "issue"
-                    elif "潜力" in crop_task_type: task_suffix = "potential"
-                    elif "项目" in crop_task_type: task_suffix = "project"
-                    elif "空间" in crop_task_type: task_suffix = "spatial"
-                    else: task_suffix = keyword.replace("*", "")[:5]
+                    if crop_task_type in TASK_DICT:
+                        task_suffix = TASK_DICT[crop_task_type]
+                    else:
+                        task_suffix = keyword.replace("*", "")[:5]
+
                     
                     dst_name = f"{clean_region_name}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
@@ -290,7 +280,7 @@ elif step == "2. 大模型数据获取":
         st.subheader("2️⃣ 开始提取")
         col1, col2 = st.columns([1, 1])
         with col1:
-            task_type = st.selectbox("选择分析任务类型", [ k for k,_ in TASK_DICT.items()])
+            task_type = st.selectbox("选择分析任务类型", list(TASK_DICT.keys()))
         with col2:
             use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
             
@@ -330,11 +320,9 @@ elif step == "2. 大模型数据获取":
                                 if not workflow_id:
                                     st.error(f"❌ 未配置 {task_type} 的 Workflow ID")
                                 else:
-                                    # 1. 上传
                                     st.write("📤 上传文件中...")
                                     file_id = client.upload_file(file_path)
                                     if file_id:
-                                        # 2. 执行
                                         st.write("🤖 AI 思考中...")
                                         raw_data = client.run_workflow(workflow_id, file_id)
                                         if raw_data:
@@ -373,20 +361,35 @@ elif step == "2. 大模型数据获取":
             # 保存到 CSV
             if results:
                 df_result = pd.DataFrame(results)
-                # === 核心修改：根据 task_type 决定保存的文件名 ===
-                task_suffix = "data"
-                if "自然资源" in task_type: task_suffix = "landuse"
-                elif "问题" in task_type: task_suffix = "issue"
-                elif "潜力" in task_type: task_suffix = "potential"
-                elif "项目" in task_type: task_suffix = "project"
-                elif "空间" in task_type: task_suffix = "spatial"
-                
+                task_suffix = TASK_DICT[task_type]
                 save_filename = f"coze_raw_output_{task_suffix}.csv"
                 save_path = os.path.join(DIRS["raw"], save_filename)
                 
                 df_result.to_csv(save_path, index=False, encoding='utf-8-sig')
                 st.write(f"数据已分类保存至: `{save_path}`")
                 st.dataframe(df_result.head())
+            
+        # 保存文件可视化 & 下载
+        st.divider()
+        st.subheader("📂 结果文件管理")
+        coze_files = []
+        if os.path.exists(DIRS["raw"]):
+            coze_files = [f for f in os.listdir(DIRS["raw"]) if f.startswith(".csv")]
+        if coze_files:
+            st.dataframe(pd.DataFrame(coze_files, columns=["成功解析数据"]), use_container_width=True, height=200)
+            selected_download = st.selectbox("选择单个文件下载:", coze_files)
+            if selected_download:
+                file_path = os.path.join(DIRS["raw"], selected_download)
+                with open(file_path, "rb") as f:
+                    st.download_button(
+                        label=f"📄 下载 {selected_download}",
+                        data=f,
+                        file_name=selected_download,
+                        mime="text/csv"
+                    )
+        
+             
+            
 # # ========================================================
 # # 3. 数据解析
 # # ========================================================
@@ -395,15 +398,8 @@ elif step == "3. 数据解析":
     
     col1, col2 = st.columns([1, 1])
     with col1:
-        parse_type = st.selectbox("选择解析模式", ["自然资源禀赋", "整治潜力", "存在问题", "子项目", "空间布局"])
-    
-    task_suffix = "data"
-    if "自然资源" in parse_type: task_suffix = "landuse"
-    elif "问题" in parse_type: task_suffix = "issue"
-    elif "潜力" in parse_type: task_suffix = "potential"
-    elif "项目" in parse_type: task_suffix = "project"
-    elif "空间" in parse_type: task_suffix = "spatial"
-    
+        parse_type = st.selectbox("选择解析模式", list(TASK_DICT.keys()))
+    task_suffix = TASK_DICT[parse_type]
     raw_filename = f"coze_raw_output_{task_suffix}.csv"
     raw_file = os.path.join(DIRS["raw"], raw_filename)
     
@@ -414,34 +410,37 @@ elif step == "3. 数据解析":
         st.write(f"📂 读取数据源: `{raw_filename}`")
         st.write("原始数据预览:", df_raw.head(3))
         
-        if col2.button("执行解析"):
-            if parse_type == "自然资源禀赋":
-                parsed_df_data_1 = parse_land_use_row(df_raw)
-            elif parse_type == "存在问题":
-                from utils_parse import batch_issue_data_parse
-                parsed_df_data_1 = batch_issue_data_parse(df_raw,f".csv")
-            elif parse_type == "整治潜力":
-                from utils_parse import parse_potential_row
-                parsed_df_data_2 = parse_potential_row(df_raw)
-            elif parse_type == "子项目":     
-                pass   
-            elif parse_type == "空间布局":
-                from utils_parse import parse_spatial_row
-                parsed_df_data_3 = parse_spatial_row(df_raw)
-            st.success("✅ 解析完成！")
+        if col2.button("执行解析", type="primary"):
+            # 1. 调用 utils_parsers 中的处理函数
+            # process_raw_data 会返回纯特征数据的 DataFrame (不含地区列)
+            parsed_df = process_raw_data(df_raw, parse_type)
             
-            # 解析完成数据合并成一个 X (N*d 矩阵) 并保存为 CSV
+           # 2. 合并地区列 (确保数据对齐)
+            # 关键：确保 parsed_df 的索引与 df_raw 一致，防止错位
+            parsed_df.index = df_raw.index 
             
-            # # 合并地区列
-            # final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
+            # 使用 join 或者 concat (axis=1)
+            # 只取 '地区' 列和新生成的特征列
+            final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
             
-            # # 存为中间结果
-            # out_name = f"parsed_{parse_type}.csv"
-            # final_df.to_csv(os.path.join(DIRS["result"], out_name), index=False, encoding='utf-8-sig')
+            # 3. 构造输出文件名 (parsed_landuse.csv, parsed_issue.csv ...)
+            out_name = f"parsed_{task_suffix}.csv"
+            save_path = os.path.join(DIRS["result"], out_name)
             
-            # st.success(f"解析成功！已保存为 {out_name}")
-            # st.dataframe(final_df.head())
-
+            # 4. 保存
+            final_df.to_csv(save_path, index=False, encoding='utf-8-sig')
+            
+            st.success(f"✅ 解析成功！结果已保存至: {out_name}")
+            st.dataframe(final_df.head())
+            
+            # 提供下载
+            csv_data = final_df.to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 下载解析结果 CSV",
+                data=csv_data,
+                file_name=out_name,
+                mime="text/csv"
+            )
 # # ========================================================
 # # 4. 数据融合
 # # ========================================================
