@@ -335,3 +335,14 @@ def extract_pages_by_keywords(pdf_path, output_path, keyword_pattern_str):
     finally:
         if src_doc: src_doc.close()
         if out_doc: out_doc.close()
+        
+def dict_save2csv(data: dict, save_path: str):
+    """
+    将字典数据保存为 CSV 文件
+    """
+    import pandas as pd
+    df = pd.DataFrame.from_dict(data, orient='index')
+    df.reset_index(inplace=True)
+    df.rename(columns={'index': '地区'}, inplace=True)
+    df.to_csv(save_path, index=False, encoding='utf-8-sig')
+    print(f"数据已保存到 {save_path}")

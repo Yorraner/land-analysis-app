@@ -5,7 +5,8 @@ import time
 import json
 import zipfile
 import shutil
-from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, extract_info,parser_file,extract_pages_by_keywords
+from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, \
+    extract_info,parser_file,extract_pages_by_keywords,dict_save2csv
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
 from utils_vis import plot_heatmap # 引入可视化
@@ -49,6 +50,15 @@ with st.sidebar:
             for d in DIRS.values():
                 if not os.path.exists(d): os.makedirs(d)
         st.success("已清理缓存")
+
+# 定义全局任务字典
+TASK_DICT={
+    "自然资源禀赋":"landuse",
+    "存在问题":"issue",
+    "整治潜力":"potential",
+    "子项目":"project",
+    "空间布局":"spatial"
+}
 
 # ========================================================
 # 1. 上传与裁剪
@@ -259,10 +269,8 @@ if step == "1. 文档上传与裁剪":
 # ========================================================
 elif step == "2. 大模型数据获取":
     st.header("🤖 步骤 2: 调用大模型智能体获取数据")
-    
     # 1. 扫描文件
-    files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
-    
+    files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]    
     if not files:
         st.warning("⚠️ 暂无已裁剪文件，请先完成步骤 1。")
     else:
@@ -282,12 +290,11 @@ elif step == "2. 大模型数据获取":
         st.subheader("2️⃣ 开始提取")
         col1, col2 = st.columns([1, 1])
         with col1:
-            task_type = st.selectbox("选择分析任务类型", [ "自然资源禀赋", "整治潜力","存在问题", "子项目","空间布局"])
+            task_type = st.selectbox("选择分析任务类型", [ k for k,_ in TASK_DICT.items()])
         with col2:
             use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
             
         if st.button("🚀 大模型分析", type="primary"):
-            # 初始化结果容器
             results = []
             progress_bar = st.progress(0)
             log_container = st.container() # 用于显示实时日志
@@ -352,7 +359,6 @@ elif step == "2. 大模型数据获取":
                                     st.text_area("Output 文本", json_data["output"], height=100)
                             except:
                                 st.text(raw_data)
-                            
                             # 保存结果
                             results.append({
                                 "地区": region_name,
@@ -367,9 +373,19 @@ elif step == "2. 大模型数据获取":
             # 保存到 CSV
             if results:
                 df_result = pd.DataFrame(results)
-                save_path = os.path.join(DIRS["raw"], "coze_raw_output.csv")
+                # === 核心修改：根据 task_type 决定保存的文件名 ===
+                task_suffix = "data"
+                if "自然资源" in task_type: task_suffix = "landuse"
+                elif "问题" in task_type: task_suffix = "issue"
+                elif "潜力" in task_type: task_suffix = "potential"
+                elif "项目" in task_type: task_suffix = "project"
+                elif "空间" in task_type: task_suffix = "spatial"
+                
+                save_filename = f"coze_raw_output_{task_suffix}.csv"
+                save_path = os.path.join(DIRS["raw"], save_filename)
+                
                 df_result.to_csv(save_path, index=False, encoding='utf-8-sig')
-                st.write(f"数据已保存至: `{save_path}`")
+                st.write(f"数据已分类保存至: `{save_path}`")
                 st.dataframe(df_result.head())
 # # ========================================================
 # # 3. 数据解析
@@ -377,29 +393,44 @@ elif step == "2. 大模型数据获取":
 elif step == "3. 数据解析":
     st.header("🧹 步骤 3: 结构化解析")
     
-    raw_file = os.path.join(DIRS["raw"], "coze_raw_output.csv")
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        parse_type = st.selectbox("选择解析模式", ["自然资源禀赋", "整治潜力", "存在问题", "子项目", "空间布局"])
+    
+    task_suffix = "data"
+    if "自然资源" in parse_type: task_suffix = "landuse"
+    elif "问题" in parse_type: task_suffix = "issue"
+    elif "潜力" in parse_type: task_suffix = "potential"
+    elif "项目" in parse_type: task_suffix = "project"
+    elif "空间" in parse_type: task_suffix = "spatial"
+    
+    raw_filename = f"coze_raw_output_{task_suffix}.csv"
+    raw_file = os.path.join(DIRS["raw"], raw_filename)
+    
     if not os.path.exists(raw_file):
-        st.warning("请先完成步骤 2 获取原始数据。")
+        st.warning(f"⚠️ 未找到对应的数据文件：{raw_filename}。请先完成步骤 2 中该类型的提取。")
     else:
         df_raw = pd.read_csv(raw_file)
+        st.write(f"📂 读取数据源: `{raw_filename}`")
         st.write("原始数据预览:", df_raw.head(3))
-        
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            parse_type = st.selectbox("选择解析模式", ["自然资源禀赋","存在问题", "整治潜力", "子项目","空间布局"])
         
         if col2.button("执行解析"):
             if parse_type == "自然资源禀赋":
                 parsed_df_data_1 = parse_land_use_row(df_raw)
             elif parse_type == "存在问题":
                 from utils_parse import batch_issue_data_parse
-                parsed_df_data_1 = batch_issue_data_parse(df_raw)
+                parsed_df_data_1 = batch_issue_data_parse(df_raw,f".csv")
             elif parse_type == "整治潜力":
                 from utils_parse import parse_potential_row
-                parsed_df_data_1 = parse_potential_row(df_raw)
+                parsed_df_data_2 = parse_potential_row(df_raw)
             elif parse_type == "子项目":     
                 pass   
+            elif parse_type == "空间布局":
+                from utils_parse import parse_spatial_row
+                parsed_df_data_3 = parse_spatial_row(df_raw)
+            st.success("✅ 解析完成！")
             
+            # 解析完成数据合并成一个 X (N*d 矩阵) 并保存为 CSV
             
             # # 合并地区列
             # final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
