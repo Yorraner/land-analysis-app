@@ -235,25 +235,37 @@ def process_raw_data(df, data_type):
         
         # B. 执行聚合计算 (农用地、建设用地、生态保护、林地占比)
         # 定义分类规则
-        agricultural_land = ['耕地', '林地', '园地', '草地']
-        construction_land = ['商服用地', '工矿用地', '住宅用地', '公共管理与公共服务用地', '特殊用地资源', '交通运输用地']
-        ecological_land = ['水域及水利设施用地', '其他用地']
+        agri_cols = ['耕地', '林地', '园地', '草地', '设施农用地', '田坎']
+        # 建设用地：优先用 "城镇村及工矿用地" (如果它有值且很大)，否则用分项求和
+        # 这里采用“加和”策略，并在 base_df 中寻找所有可能的建设用地列
+        cons_cols = ['商服用地', '工矿用地', '住宅用地', '公共管理与公共服务用地', '特殊用地资源', '交通运输用地']
+        # 生态用地
+        eco_cols = ['水域及水利设施用地', '其他用地', '其他土地']
+          result_df = pd.DataFrame()
         
-        result_df = pd.DataFrame()
+        # 1. 农用地
+        result_df['农用地'] = base_df[agri_cols].fillna(0).sum(axis=1)
         
-        # 计算三大类
-        # fillna(0) 确保计算不出错
-        result_df['农用地'] = base_df[agricultural_land].fillna(0).sum(axis=1)
-        result_df['建设用地'] = base_df[construction_land].fillna(0).sum(axis=1)
-        result_df['生态保护'] = base_df[ecological_land].fillna(0).sum(axis=1)
+        # 2. 建设用地 (智能判断)
+        # 如果 "城镇村及工矿用地" 有值，且远大于 分项之和，则优先使用它 (因为分项可能缺失)
+        # 加上 "交通运输用地" (它通常不包含在城镇村中)
         
-        # 计算林地占比
+        # 先算分项和
+        sum_cons_sub = base_df[cons_cols].fillna(0).sum(axis=1)
+        # 拿总项
+        val_cons_total = base_df['城镇村及工矿用地'].fillna(0)
+        result_df['建设用地'] = np.where(
+            val_cons_total > 0,
+            val_cons_total + base_df['交通运输用地'].fillna(0) + base_df['特殊用地资源'].fillna(0),
+            sum_cons_sub
+        )
+        # 3. 生态保护
+        result_df['生态保护'] = base_df[eco_cols].fillna(0).sum(axis=1)
+        
+        # 4. 林地占比
         total_area = result_df['农用地'] + result_df['建设用地'] + result_df['生态保护']
-        # 防止除以0
-        result_df['林地占比'] = np.where(total_area > 0, base_df['林地'] / total_area, 0.0)
-        
+        result_df['林地占比'] = np.where(total_area > 0, base_df['林地'].fillna(0) / total_area, 0.0) 
         return result_df
-    
     # 3. 整治潜力
     elif "潜力" in data_type:
         potentials = ["垦造水田潜力", "新增耕地潜力", "耕地“非粮化”整治潜力", "耕地恢复潜力", "高标准农田建设潜力", 
