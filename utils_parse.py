@@ -13,9 +13,13 @@ def parse_land_use_row(raw_json_input):
     """
     # 定义12个标准地类
     target_categories = [
-        "耕地", "园地", "林地", "草地", "商服用地", "工矿用地", 
-        "住宅用地", "公共管理与公共服务用地", "特殊用地资源", 
-        "交通运输用地", "水域及水利设施用地", "其他用地"
+        # 农用地相关
+        "耕地", "园地", "林地", "草地", "设施农用地", "田坎",
+        # 建设用地相关
+        "商服用地", "工矿用地", "住宅用地", "公共管理与公共服务用地", "特殊用地资源", "交通运输用地", 
+        "城镇村及工矿用地", # <--- 新增：大模型常返回这个汇总类
+        # 生态相关
+        "水域及水利设施用地", "其他用地", "其他土地" # <--- 新增：国标常用名
     ]
     
     # 初始化全0
@@ -25,62 +29,91 @@ def parse_land_use_row(raw_json_input):
         return pd.Series(final_result)
 
     try:
-        # 1. 获取内部内容
+        # 1. 获取内部内容 (剥离外层 JSON)
         inner_content = str(raw_json_input)
         try:
             if isinstance(raw_json_input, str):
-                outer_data = json.loads(raw_json_input)
+                # 尝试解析最外层的 {"output": "..."}
+                try:
+                    outer_data = json.loads(raw_json_input)
+                except:
+                    outer_data = None
+                
                 if isinstance(outer_data, dict):
-                    inner_content = outer_data.get("output", "")
-                else:
-                    inner_content = raw_json_input
+                    inner_content = outer_data.get("output", raw_json_input)
+                # 如果解析出来是列表，说明没有 output 包裹，直接用
+                elif isinstance(outer_data, list):
+                    inner_content = raw_json_input # 保持原样，后面处理
         except:
             pass
 
-        # 2. 混合解析策略
+        # 2. 核心解析逻辑
         extracted_data = {}
-        json_success = False
         
-        # 策略 A: 尝试作为纯 JSON 解析
+        # 尝试将 inner_content 解析为 Python 对象 (Dict 或 List)
         try:
-            inner_json = json.loads(inner_content)
-            # 兼容 {"数据": {...}} 或 直接 {...}
-            source_dict = inner_json.get("数据", inner_json) if isinstance(inner_json, dict) else {}
+            # 如果 inner_content 已经是对象（在某些流程里可能已经被解包）
+            if isinstance(inner_content, (dict, list)):
+                parsed_obj = inner_content
+            else:
+                parsed_obj = json.loads(str(inner_content))
             
-            if isinstance(source_dict, dict):
-                for k, v in source_dict.items():
-                    clean_key = k.strip()
-                    # 尝试转 float，如果失败(如字符串表达式)则跳过
-                    extracted_data[clean_key] = float(v)
-                json_success = True
-        except:
-            json_success = False
+            # --- 情况 A: 列表格式 [{"类别": "耕地", "面积": 100}, ...] ---
+            if isinstance(parsed_obj, list):
+                for item in parsed_obj:
+                    if isinstance(item, dict):
+                        # 模糊匹配 Key，找到"类别"和"面积"
+                        key_name = None
+                        val_num = 0.0     
+                        # 找名字
+                        for k in ["类别", "类型", "name", "category", "地类"]:
+                            if k in item:
+                                key_name = item[k]
+                                break
+                        # 找数值
+                        for k in ["面积", "数值", "area", "value", "规模"]:
+                            if k in item:
+                                try:
+                                    val_num = float(item[k])
+                                except:
+                                    val_num = 0.0
+                                break
+                        
+                        if key_name:
+                            extracted_data[key_name.strip()] = val_num
 
-        # 策略 B: 正则暴力提取 (处理 "100 + 20" 这种)
-        if not json_success or not extracted_data:
-            # 匹配 "数据": { ... } 内容
-            block_match = re.search(r'"数据":\s*\{(.*?)\}', inner_content, re.DOTALL)
-            search_source = block_match.group(1) if block_match else inner_content
-            
-            # 匹配 "key": val
-            pattern = r'"([^"]+)"\s*:\s*([0-9\.\s\+]+)'
-            items = re.findall(pattern, search_source)
-            
-            for key, expression in items:
+            # --- 情况 B: 字典格式 {"数据": {"耕地": 100, ...}} 或 {"耕地": 100} ---
+            elif isinstance(parsed_obj, dict):
+                # 兼容 {"数据": ...} 嵌套
+                source_dict = parsed_obj.get("数据", parsed_obj)
+                if isinstance(source_dict, dict):
+                    for k, v in source_dict.items():
+                        try:
+                            extracted_data[k.strip()] = float(v)
+                        except: pass
+        
+        except Exception:
+            # --- 情况 C: 正则暴力提取 (处理非标准 JSON 字符串) ---
+            # 匹配 "耕地": 123.45 或 "类别":"耕地","面积":123.45
+            # 简单策略：找所有 "中文": 数字 的对
+            pattern = r'"([\u4e00-\u9fa5]+)"\s*[:：]\s*([0-9\.]+)'
+            items = re.findall(pattern, str(inner_content))
+            for k, v in items:
                 try:
-                    clean_key = key.strip()
-                    # 计算加法表达式
-                    val = sum([float(num.strip()) for num in expression.split('+') if num.strip()])
-                    extracted_data[clean_key] = val
-                except:
-                    pass
+                    extracted_data[k] = float(v)
+                except: pass
 
-        # 3. 强制对齐列名
+        # 3. 填入结果
         for cat in target_categories:
-            final_result[cat] = extracted_data.get(cat, 0.0)
+            # 优先精确匹配
+            if cat in extracted_data:
+                final_result[cat] = extracted_data[cat]
+            else:
+                # 尝试模糊匹配 (防止少许错别字)
+                pass 
 
-    except Exception:
-        pass # 出错返回默认全0
+    except Exception as e:
+        print(f"解析出错: {e}")
 
     return pd.Series(final_result)
 

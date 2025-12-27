@@ -128,7 +128,7 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
         with open(zip_path, "rb") as f:
             st.download_button(f"📦 打包下载全部 ({len(files)}个)", f, zip_name, "application/zip", key=f"{key_prefix}_zip")        
     else:
-        st.info(f"目录为空 ({dir_path})")
+        st.info(f"当前任务的目录为空 ({dir_path})")
 # ========================================================
 # 1. 上传与裁剪
 # ========================================================
