@@ -463,9 +463,7 @@ elif step == "2. 大模型数据获取":
                         type="primary"
                     )
     else:
-        st.info("暂无生成的原始数据文件。")
-             
-            
+        st.info("暂无生成的原始数据文件。")        
 # # ========================================================
 # # 3. 数据解析
 # # ========================================================
@@ -532,27 +530,46 @@ elif step == "4. 数据融合&展示":
         # 4.问题: 28-32
         # 5.项目: 33+
         order_keywords = ["土地利用现状", "整治潜力", "空间布局", "存在问题", "项目汇总"]
+        strict_order_suffixes = list(TASK_DICT.values())
+        sorted_csvs = []
+        for suffix in strict_order_suffixes:
+            target_name = f"parsed_{suffix}.csv"
+            if target_name in csvs:
+                sorted_csvs.append(target_name)
+            else:
+                st.caption(f"⚪ 未检测到建议文件: `{target_name}`")
+        if not sorted_csvs:
+            st.warning("未找到任何符合命名规范的文件（如 parsed_landuse.csv）。请检查步骤 3 是否已执行。")
+
+        # 默认选中所有找到的文件
+        selected = st.multiselect(
+            "参与融合的文件 (已自动过滤并排序)", 
+            sorted_csvs, 
+            default=sorted_csvs
+        )
         
         sorted_csvs = []
         for kw in order_keywords:
             for f in csvs:
                 if kw in f and f not in sorted_csvs:
                     sorted_csvs.append(f)
-        
         # 把剩下没匹配到的加到后面
         for f in csvs:
             if f not in sorted_csvs:
                 sorted_csvs.append(f)
         
         selected = st.multiselect("选择要融合的文件 (已自动排序)", sorted_csvs, default=sorted_csvs)
-        
-        if st.button("开始融合与归一化", type="primary"):
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            use_log = st.checkbox("☑️ 启用 Log1p 对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
+        with c2:
+            start_btn = st.button("开始融合与归一化", type="primary")
+        if  start_btn:
             if not selected:
                 st.error("请至少选择一个文件。")
             else:
                 matrices, maps, names = [], [], []
                 all_feature_names = []
-                
                 # 按照排序后的 selected 列表读取
                 for f in selected:
                     path = os.path.join(DIRS["result"], f)
