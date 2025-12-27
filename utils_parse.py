@@ -232,7 +232,6 @@ def process_raw_data(df, data_type):
     elif "自然资源" in data_type or "土地利用" in data_type:
         # A. 先提取基础的 12 个地类
         base_df = df['rawdata'].apply(parse_land_use_row)
-        
         # B. 执行聚合计算 (农用地、建设用地、生态保护、林地占比)
         # 定义分类规则
         agri_cols = ['耕地', '林地', '园地', '草地', '设施农用地', '田坎']
@@ -241,7 +240,7 @@ def process_raw_data(df, data_type):
         cons_cols = ['商服用地', '工矿用地', '住宅用地', '公共管理与公共服务用地', '特殊用地资源', '交通运输用地']
         # 生态用地
         eco_cols = ['水域及水利设施用地', '其他用地', '其他土地']
-          result_df = pd.DataFrame()
+        result_df = pd.DataFrame()
         
         # 1. 农用地
         result_df['农用地'] = base_df[agri_cols].fillna(0).sum(axis=1)
@@ -249,7 +248,6 @@ def process_raw_data(df, data_type):
         # 2. 建设用地 (智能判断)
         # 如果 "城镇村及工矿用地" 有值，且远大于 分项之和，则优先使用它 (因为分项可能缺失)
         # 加上 "交通运输用地" (它通常不包含在城镇村中)
-        
         # 先算分项和
         sum_cons_sub = base_df[cons_cols].fillna(0).sum(axis=1)
         # 拿总项
