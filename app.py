@@ -338,13 +338,11 @@ elif step == "2. 大模型数据获取":
                         # --- 显示输出内容 ---
                         if raw_data:
                             st.markdown("**🔎 输出内容预览:**")
-                            # 尝试美化 JSON 显示
                             try:
                                 json_data = json.loads(raw_data)
                                 st.json(json_data)
-                                # 提取 output 字段里的纯文本展示
                                 if "output" in json_data:
-                                    st.text_area("Output 文本", json_data["output"], height=100)
+                                    st.text_area("解析文本", json_data["output"], height=200)
                             except:
                                 st.text(raw_data)
                             # 保存结果
@@ -366,7 +364,7 @@ elif step == "2. 大模型数据获取":
                 save_path = os.path.join(DIRS["raw"], save_filename)
                 
                 df_result.to_csv(save_path, index=False, encoding='utf-8-sig')
-                st.write(f"数据已分类保存至: `{save_path}`")
+                st.write(f"数据已保存至: `{save_path}`")
                 st.dataframe(df_result.head())
             
         # 保存文件可视化 & 下载
@@ -374,20 +372,37 @@ elif step == "2. 大模型数据获取":
         st.subheader("📂 结果文件管理")
         coze_files = []
         if os.path.exists(DIRS["raw"]):
-            coze_files = [f for f in os.listdir(DIRS["raw"]) if f.startswith(".csv")]
+            coze_files = [f for f in os.listdir(DIRS["raw"]) if f.endswith(".csv")]
         if coze_files:
-            st.dataframe(pd.DataFrame(coze_files, columns=["成功解析数据"]), use_container_width=True, height=200)
-            selected_download = st.selectbox("选择单个文件下载:", coze_files)
-            if selected_download:
-                file_path = os.path.join(DIRS["raw"], selected_download)
-                with open(file_path, "rb") as f:
-                    st.download_button(
-                        label=f"📄 下载 {selected_download}",
-                        data=f,
-                        file_name=selected_download,
-                        mime="text/csv"
-                    )
-        
+            # 2. 显示文件列表
+            st.dataframe(pd.DataFrame(coze_files, columns=["大模型解析生成的数据文件"]), use_container_width=True)
+            
+            col_preview, col_down = st.columns([2, 1])
+            with col_preview:
+                # 3. 文件预览功能
+                selected_preview = st.selectbox("选择文件进行预览:", coze_files, key="preview_sel")
+                if selected_preview:
+                    preview_path = os.path.join(DIRS["raw"], selected_preview)
+                    try:
+                        pre_df = pd.read_csv(preview_path)
+                        st.write(f"📊 `{selected_preview}` 数据预览 (前 5 行):")
+                        st.dataframe(pre_df.head())
+                    except Exception as e:
+                        st.error(f"读取失败: {e}")
+            with col_down:
+                # 4. 下载按钮
+                if selected_preview:
+                    preview_path = os.path.join(DIRS["raw"], selected_preview)
+                    with open(preview_path, "rb") as f:
+                        st.download_button(
+                            label=f"📥 下载 {selected_preview}",
+                            data=f,
+                            file_name=selected_preview,
+                            mime="text/csv",
+                            type="primary"
+                        )
+        else:
+            st.info("暂无生成的原始数据文件。")
              
             
 # # ========================================================
