@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import pandas as pd
+import numpy as np
 import time
 import json
 import zipfile
@@ -691,18 +692,32 @@ elif step == "4. 数据融合&展示":
                 df_vis = df_vis.select_dtypes(include=['number'])
                 
                 with c_vis2:
-                    do_norm = st.checkbox("对此数据应用 Min-Max 归一化 (推荐)", value=True, key=f"norm_{selected_vis}")
-                
-                if do_norm and not df_vis.empty:
-                    df_vis = (df_vis - df_vis.min()) / (df_vis.max() - df_vis.min())
-                    df_vis = df_vis.fillna(0)
-            
-            if not df_vis.empty:
-                fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
-                st.pyplot(fig)
-            else:
-                st.warning("该文件无数值数据，无法绘制热力图。")
-                
+                    do_norm = st.checkbox(
+                        "应用 Log1p + Min-Max 归一化", 
+                        value=True, 
+                        key=f"norm_{selected_vis}",
+                        help="防止长尾数据导致热力图全黑。Log1p用于拉近数量级差距。"
+                    )
+                if not df_vis.empty:
+                    if do_norm:
+                        # 1. Log1p
+                        df_log = np.log1p(df_vis)
+                        # 2. Min-Max
+                        range_val = df_log.max() - df_log.min()
+                        # 防止除0
+                        df_norm = pd.DataFrame(
+                            np.where(range_val == 0, 0, (df_log - df_log.min()) / range_val),
+                            index=df_vis.index, columns=df_vis.columns
+                        ).fillna(0)
+                        
+                        # 绘图：传入特征名 (分项数据列数少，可以显示名字)
+                        fig = plot_heatmap(df_norm.values, df_norm.index.tolist(), feature_names=df_norm.columns.tolist())
+                    else:
+                        # 不归一化直接画 (可能会很难看)
+                        fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
+                    st.pyplot(fig)
+                else:
+                    st.warning("该文件无数值数据，无法绘制热力图。")
         except Exception as e:
             st.error(f"可视化加载失败: {e}")
     # 这里展示的是 result 目录下的所有文件（包含 Step 3 的解析文件和 Step 4 的矩阵文件）               
@@ -711,17 +726,12 @@ elif step == "4. 数据融合&展示":
 # 5. 数据分类与导出
 # ========================================================
 elif step == "5. 数据分类与导出":
-    st.header("📊 步骤 5: 智能分区分类 (K-Means)")
-    
-    # 自动加载上一步的文件
-    # 注意：这里我们优先读取 "归一化后的矩阵"
+    st.header("📊 步骤 5: 智能分区分类")
+
     auto_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
-    
     df_matrix = None
-    
     # 1. 数据源选择
     data_source_opt = st.radio("数据来源", ["自动加载 (步骤4结果)", "手动上传 (CSV)"])
-    
     if data_source_opt == "自动加载 (步骤4结果)":
         if os.path.exists(auto_path):
             st.success(f"✅ 已检测到文件: parsed_final_matrix.csv")
