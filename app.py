@@ -224,8 +224,7 @@ if step == "1. 文档上传与裁剪":
 
     # --- Tab 2: 手动裁剪 ---
     with tab2:
-        st.markdown("### 🛠️ 裁剪结果修复")
-        st.info("如果自动裁剪失败或内容不对，请在这里手动指定页码。**系统会自动覆盖同名的旧文件**，确保后续流程无缝衔接。")
+        st.info("自动裁剪失败或裁剪内容有误，请在此处手动指定页码。**系统会自动覆盖同名的旧文件**，确保后续流程顺利运行。")
         # 1. choose file to crop
         existing_files = [f for f in os.listdir(DIRS["upload"]) if f.endswith(".pdf")]
         col_up, col_sel = st.columns([1, 2])
@@ -266,7 +265,7 @@ if step == "1. 文档上传与裁剪":
                     # === 关键：使用标准后缀生成文件名 ===
                     task_suffix = TASK_DICT[manual_task_type]
                     # 生成如 "东莞-凤岗_landuse.pdf"
-                    dst_name = f"{info['新文件名']}_{task_suffix}.pdf"
+                    dst_name = f"{info['文件名']}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
                     
                     # check file replace
