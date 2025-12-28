@@ -28,6 +28,15 @@ DIRS = {
     "result": os.path.join(TEMP_DIR, "4_results"), 
     "final": os.path.join(TEMP_DIR, "5_final")
 }
+TEMPLATE_COLUMNS = {
+    "spatial": ["地区", "永农调入规模（公顷）", "永农调出规模（公顷）", "城镇开发调入规模（公顷）", "城镇开发调出规模（公顷）", "规划单元空间调整打分（最高5分）"],
+    "potential": ["地区", "垦造水田潜力", "新增耕地潜力", "耕地恢复潜力", "高标准农田建设潜力", "矿山修复潜力", "红树林保护潜力"],
+    "issue": ["地区", "耕地碎片化_排序", "耕地碎片化_说明", "低效用地问题_排序", "低效用地问题_说明"],
+    "landuse": ["地区", "农用地", "建设用地", "生态保护", "林地占比"],
+    "project": ["地区", "农用地整理类项目_数量", "农用地整理类项目_投资", "农用地整理类项目_规模"],
+    "default": ["地区", "指标1", "指标2", "指标3"]
+}
+
 # 初始化目录
 for d in DIRS.values():
     if not os.path.exists(d): os.makedirs(d)
@@ -267,7 +276,6 @@ if step == "1. 文档上传与裁剪":
                     # 生成如 "东莞-凤岗_landuse.pdf"
                     dst_name = f"{info['文件名']}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
-                    
                     # check file replace
                     if os.path.exists(dst_path):
                         st.info(f"🔄 检测到旧文件 `{dst_name}`，将被新裁剪的文件覆盖。")
@@ -529,7 +537,7 @@ elif step == "3. 数据解析":
     # 手动上传外部数据
     with tab2:
         st.markdown("""
-        **功能说明：** 如果某些数据（如空间布局规划）无法通过 PDF 提取，或者您已经有整理好的 Excel/CSV 数据，可以直接在此处上传。
+        **功能说明：** 如果某些数据（如空间布局规划）无法通过 `PDF` 提取，或者您已经有整理好的 `Excel/CSV `数据，在此处上传。
         系统会自动将其保存为标准格式，以便后续步骤进行融合。
         """)
         c1, c2 = st.columns([1, 1])
@@ -585,12 +593,13 @@ elif step == "4. 数据融合&展示":
     st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)及可视化展示")
     # 扫描已解析的 CSV
     csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
+    norm_res_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
+    raw_res_path = os.path.join(DIRS["result"], "parsed_raw_matrix.csv")
     
     if not csvs:
         st.warning("⚠️ 没有找到解析后的数据文件，请先完成步骤 3。")
     else:
         st.info("💡 提示：为了保证归一化索引正确，系统将按照 **[自然资源 -> 潜力 -> 空间 -> 问题 -> 项目]** 的顺序强制排序。")
-        
         # === 核心逻辑：强制文件排序 ===
         # 定义期望的关键词顺序（与 preprocess_X 中的硬编码索引对应）
         # 1.自然资源: 0-3
@@ -598,24 +607,15 @@ elif step == "4. 数据融合&展示":
         # 3.空间: 23-27
         # 4.问题: 28-32
         # 5.项目: 33+
-        order_keywords = ["土地利用现状", "整治潜力", "空间布局", "存在问题", "项目汇总"]
-        strict_order_suffixes = list(TASK_DICT.values())
+        order_keywords = ["landuse", "potential", "spatial", "issue", "project"]
         sorted_csvs = []
-        for suffix in strict_order_suffixes:
-            target_name = f"parsed_{suffix}.csv"
-            if target_name in csvs:
-                sorted_csvs.append(target_name)
-            else:
-                st.caption(f"⚪ 未检测到建议文件: `{target_name}`")
-        if not sorted_csvs:
-            st.warning("未找到任何符合命名规范的文件（如 parsed_landuse.csv）。请检查步骤 3 是否已执行。")
-
-        # 默认选中所有找到的文件
-        selected = st.multiselect(
-            "参与融合的文件 (已自动过滤并排序)", 
-            sorted_csvs, 
-            default=sorted_csvs
-        )
+        for kw in order_keywords:
+            for f in csvs:
+                if kw in f and f not in sorted_csvs: sorted_csvs.append(f)
+        for f in csvs:
+            if f not in sorted_csvs: sorted_csvs.append(f)
+        
+        selected = st.multiselect("选择要融合的文件 (已自动排序)", sorted_csvs, default=sorted_csvs)
         
         c1, c2 = st.columns([1, 2])
         with c1:
@@ -650,44 +650,61 @@ elif step == "4. 数据融合&展示":
                 if len(regions) > 0:
                     st.success(f"✅ 融合成功！共 {len(regions)} 个地区，特征维度: {X_final.shape[1]}")
                     try:
-                        # 2. 归一化处理
-                        st.info("正在进行 Min-Max 归一化处理...")
-                        # 检查列数是否足够支持硬编码索引
-                        if X_final.shape[1] < 30: # 简单检查，因为preprocess_X用到列索引28-32
-                            st.warning(f"⚠️ 警告：当前特征列数 ({X_final.shape[1]}) 可能少于预期，归一化可能会出错或索引越界。建议确保上传了所有 5 类数据。")
-                        
-                        X_norm = preprocess_X(X_final)
-                        # 3. 保存归一化后的矩阵
+                        st.info(f"正在处理... (Log变换: {use_log})")
+                        X_norm = preprocess_X(X_final, use_log=use_log)
                         final_df = pd.DataFrame(X_norm, index=regions, columns=all_feature_names)
-                        save_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
-                        final_df.to_csv(save_path, encoding='utf-8-sig')
+                        final_df.to_csv(norm_res_path, encoding='utf-8-sig')
                         
-                        # 保存原始矩阵备用
-                        raw_save_path = os.path.join(DIRS["result"], "parsed_raw_matrix.csv")
                         raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
-                        raw_df.to_csv(raw_save_path, encoding='utf-8-sig')
-                        
-                        # 展示与下载
-                        c1, c2 = st.columns([2, 1])
-                        with c1:
-                            st.write("📊 **归一化后数据预览:**")
-                            st.dataframe(final_df.head(5))
-                        with c2:
-                            st.write("📥 **下载结果:**")
-                            st.download_button("下载归一化矩阵 (CSV)", final_df.to_csv(encoding='utf-8-sig'), "final_matrix_norm.csv", "text/csv")
-                            st.download_button("下载原始矩阵 (CSV)", raw_df.to_csv(encoding='utf-8-sig'), "final_matrix_raw.csv", "text/csv")
-
-                        # 4. 热力图可视化
-                        st.divider()
-                        st.subheader("🎨 特征热力图可视化")
-                        fig = plot_heatmap(X_norm, regions)
-                        st.pyplot(fig)
-                        
+                        raw_df.to_csv(raw_res_path, encoding='utf-8-sig')
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"归一化或绘图失败: {e}")
-                        st.warning("提示：请检查 utils_fusion.py 中的 preprocess_X 索引是否与当前数据的列顺序匹配。")
+                            st.error(f"归一化失败: {e}")
                 else:
-                    st.error("融合失败：所选数据表之间没有公共地区。")
+                        st.error("融合失败：所选数据表之间没有公共地区。")
+    # === 可视化看板 (新增) ===
+    if os.path.exists(norm_res_path):
+        st.divider()
+        st.subheader("🎨 多维度可视化看板")
+        
+        # 1. 准备可视化选项
+        vis_options = {"🏆 最终融合矩阵 (归一化)": norm_res_path}
+        # 自动扫描并添加分项数据
+        for f in sorted_csvs:
+            vis_options[f"📄 分项: {f}"] = os.path.join(DIRS["result"], f)
+            
+        # 2. 用户选择
+        c_vis1, c_vis2 = st.columns([1, 2])
+        with c_vis1:
+            selected_vis = st.selectbox("选择要展示的热力图数据:", list(vis_options.keys()))
+        
+        # 3. 加载与处理
+        target_path = vis_options[selected_vis]
+        try:
+            if "最终融合" in selected_vis:
+                df_vis = pd.read_csv(target_path, index_col=0)
+                st.caption("展示最终融合并归一化后的全量数据。")
+            else:
+                df_vis = pd.read_csv(target_path)
+                if "地区" in df_vis.columns: df_vis = df_vis.set_index("地区")
+                # 筛选数值列
+                df_vis = df_vis.select_dtypes(include=['number'])
+                
+                with c_vis2:
+                    do_norm = st.checkbox("对此数据应用 Min-Max 归一化 (推荐)", value=True, key=f"norm_{selected_vis}")
+                
+                if do_norm and not df_vis.empty:
+                    df_vis = (df_vis - df_vis.min()) / (df_vis.max() - df_vis.min())
+                    df_vis = df_vis.fillna(0)
+            
+            if not df_vis.empty:
+                fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
+                st.pyplot(fig)
+            else:
+                st.warning("该文件无数值数据，无法绘制热力图。")
+                
+        except Exception as e:
+            st.error(f"可视化加载失败: {e}")
     # 这里展示的是 result 目录下的所有文件（包含 Step 3 的解析文件和 Step 4 的矩阵文件）               
     render_file_manager(DIRS["result"], title="融合及中间数据管理", file_ext=".csv", key_prefix="step4")
 # ========================================================
@@ -711,7 +728,6 @@ elif step == "5. 数据分类与导出":
             df_matrix = pd.read_csv(auto_path, index_col=0)
         else:
             st.warning("⚠️ 未找到自动生成的文件，请先完成步骤 4 或选择手动上传。")
-            
     elif data_source_opt == "手动上传 (CSV)":
         uploaded_matrix = st.file_uploader("上传特征矩阵 CSV", type=["csv"])
         if uploaded_matrix:

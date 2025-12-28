@@ -59,7 +59,6 @@ def plot_heatmap(X_norm, regions, feature_names=None):
     feature_names: 特征名列表 (横轴，可选)
     """
     my_font = get_chinese_font()
-    
     # 地区名称简化字典
     rename_dict = {
         "广州--湛江市产业转移合作园（湛江奋勇高新区）-湛江奋勇高新区": "广州--湛江市产业转移合作园",
@@ -69,7 +68,7 @@ def plot_heatmap(X_norm, regions, feature_names=None):
     
     # 动态调整图片高度
     # 至少 10，每个地区增加 0.4 高度
-    h = max(10, len(regions) * 0.4)
+    h = max(10, len(regions) * 0.3)
     fig, ax = plt.subplots(figsize=(12, h))
     
     # 如果没有特征名，用数字代替
@@ -83,7 +82,6 @@ def plot_heatmap(X_norm, regions, feature_names=None):
         linewidths=0.05,
         ax=ax
     )
-    
     # 设置字体
     if my_font:
         ax.set_xlabel('特征', fontproperties=my_font, fontsize=14)
