@@ -608,15 +608,29 @@ elif step == "4. 数据融合&展示":
         # 3.空间: 23-27
         # 4.问题: 28-32
         # 5.项目: 33+
-        order_keywords = ["landuse", "potential", "spatial", "issue", "project"]
-        sorted_csvs = []
-        for kw in order_keywords:
-            for f in csvs:
-                if kw in f and f not in sorted_csvs: sorted_csvs.append(f)
-        for f in csvs:
-            if f not in sorted_csvs: sorted_csvs.append(f)
+        # 1. 定义核心任务后缀顺序
+        strict_order_suffixes = ["landuse", "potential", "spatial", "issue", "project"]
         
-        selected = st.multiselect("选择要融合的文件 (已自动排序)", sorted_csvs, default=sorted_csvs)
+        # 2. 构建默认选中列表 (Default Selection) - 仅包含严格匹配的核心文件
+        default_files = []
+        for suffix in strict_order_suffixes:
+            target_name = f"parsed_{suffix}.csv"
+            if target_name in csvs:
+                default_files.append(target_name)
+        
+        # 3. 构建所有选项列表 (All Options) - 核心在前，其他在后
+        # 这样用户可以看到所有 parsed_*.csv，但默认只选对的 5 个
+        other_files = [f for f in csvs if f not in default_files]
+        all_options = default_files + other_files
+        
+        if not default_files:
+            st.warning("⚠️ 未找到任何符合标准命名规范的核心文件（如 parsed_landuse.csv）。请检查步骤 3 是否已正确执行。")
+            
+        selected = st.multiselect(
+            "选择要融合的文件 (默认仅选中 5 类核心数据)", 
+            options=all_options, 
+            default=default_files
+        )
         
         c1, c2 = st.columns([1, 2])
         with c1:
@@ -671,7 +685,7 @@ elif step == "4. 数据融合&展示":
         # 1. 准备可视化选项
         vis_options = {"🏆 最终融合矩阵 (归一化)": norm_res_path}
         # 自动扫描并添加分项数据
-        for f in sorted_csvs:
+        for f in csvs: 
             vis_options[f"📄 分项: {f}"] = os.path.join(DIRS["result"], f)
             
         # 2. 用户选择
