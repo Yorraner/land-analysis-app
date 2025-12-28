@@ -224,7 +224,9 @@ if step == "1. 文档上传与裁剪":
 
     # --- Tab 2: 手动裁剪 ---
     with tab2:
-        st.markdown("针对自动识别失败的文件，**手动指定起止页码**进行提取。")
+        st.markdown("### 🛠️ 裁剪结果修复")
+        st.info("如果自动裁剪失败或内容不对，请在这里手动指定页码。**系统会自动覆盖同名的旧文件**，确保后续流程无缝衔接。")
+        # 1. choose file to crop
         existing_files = [f for f in os.listdir(DIRS["upload"]) if f.endswith(".pdf")]
         col_up, col_sel = st.columns([1, 2])
         with col_up: manual_file = st.file_uploader("上传单个文件", type=["pdf"], key="manual_uploader")
@@ -239,29 +241,44 @@ if step == "1. 文档上传与裁剪":
         
         if target_file_path:
             st.divider()
-            c1, c2, c3 = st.columns([1, 1, 2])
-            with c1: start_p = st.number_input("起始页码", min_value=1, value=1)
-            with c2: end_p = st.number_input("结束页码", min_value=1, value=5)
-            with c3: 
-                st.write(""); st.write("")
-                if st.button("✂️ 执行裁剪"):
-                    if end_p <= start_p: st.error("结束页码必须大于起始页码！")
-                    else:
-                        f_name = os.path.basename(target_file_path)
-                        
-                        # === 修改点：手动裁剪也尝试规范化命名 ===
-                        info = extract_info(f_name)
-                        # 手动裁剪通常是为了修复某个特定问题，这里加上 _manual 后缀以示区别
-                        # 或者如果您希望手动修复的文件也能直接被 API 识别，可以去掉 _manual，
-                        # 但为了防止覆盖自动生成的文件，建议保留标识。
-                        # 这里我们使用: 地区名_manual.pdf
-                        dst_name = f"{info['新文件名']}_manual.pdf"
-                        dst_path = os.path.join(DIRS["crop"], dst_name)
-                        
-                        if extract_section_to_pdf_self(target_file_path, start_p, end_p, dst_path):
-                            st.success(f"✅ 裁剪成功！已保存为: {dst_name}")
-                        else: st.error("❌ 裁剪失败")
+            c1, c2 = st.columns(2)
 
+            with c1:
+                manual_task_type = st.selectbox(
+                    "这是哪类数据的文档？", 
+                    list(TASK_DICT.keys()), 
+                    key="manual_task_sel",
+                    help="选择正确的类型，系统将自动生成标准文件名（如 _landuse.pdf），覆盖之前自动生成的错误文件。"
+                )
+            # split pages
+            with c2:
+                col_p1, col_p2 = st.columns(2)
+                with col_p1: start_p = st.number_input("起始页码", min_value=1, value=1)
+                with col_p2: end_p = st.number_input("结束页码", min_value=1, value=5)
+            
+            if st.button("✂️ 执行裁剪并覆盖", type="primary"):
+                if end_p <= start_p: 
+                    st.error("结束页码必须大于起始页码！")
+                else:
+                    f_name = os.path.basename(target_file_path)
+                    info = extract_info(f_name)
+                    
+                    # === 关键：使用标准后缀生成文件名 ===
+                    task_suffix = TASK_DICT[manual_task_type]
+                    # 生成如 "东莞-凤岗_landuse.pdf"
+                    dst_name = f"{info['新文件名']}_{task_suffix}.pdf"
+                    dst_path = os.path.join(DIRS["crop"], dst_name)
+                    
+                    # check file replace
+                    if os.path.exists(dst_path):
+                        st.info(f"🔄 检测到旧文件 `{dst_name}`，将被新裁剪的文件覆盖。")
+                    if extract_section_to_pdf_self(target_file_path, start_p, end_p, dst_path):
+                        st.success(f"✅ 修复成功！文件已保存为: `{dst_name}`")
+                        # 稍微延迟后刷新，让文件列表更新
+                        time.sleep(1)
+                        st.rerun() 
+                    else: 
+                        st.error("❌ 裁剪失败，请检查PDF是否损坏或页码越界。")
     st.divider()
     st.subheader("📂 结果文件管理")
     
@@ -469,44 +486,97 @@ elif step == "2. 大模型数据获取":
 # # ========================================================
 elif step == "3. 数据解析":
     st.header("🧹 步骤 3: 结构化解析")
+    # === 使用 Tabs 分流：正常解析 vs 手动上传 ===
+    tab1, tab2 = st.tabs(["⚙️ 解析原始数据", "📤 上传外部数据 (补充缺失项)"])
     
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        parse_type = st.selectbox("选择解析模式", list(TASK_DICT.keys()))
-    task_suffix = TASK_DICT[parse_type]
-    raw_filename = f"coze_raw_output_{task_suffix}.csv"
-    raw_file = os.path.join(DIRS["raw"], raw_filename)
-    
-    if not os.path.exists(raw_file):
-        st.warning(f"⚠️ 未找到对应的数据文件：{raw_filename}。请先完成步骤 2 中该类型的提取。")
-    else:
-        df_raw = pd.read_csv(raw_file)
-        st.write(f"📂 读取数据源: `{raw_filename}`")
-        st.write("原始数据预览:", df_raw.head(3))
+    # 正常数据解析
+    with tab1:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            parse_type = st.selectbox("选择解析模式", list(TASK_DICT.keys()))
+        task_suffix = TASK_DICT[parse_type]
+        raw_filename = f"coze_raw_output_{task_suffix}.csv"
+        raw_file = os.path.join(DIRS["raw"], raw_filename)
         
-        if col2.button("数据解析", type="primary"):
-            # 1. 调用 utils_parsers 中的处理函数
-            # process_raw_data 会返回纯特征数据的 DataFrame (不含地区列)
-            parsed_df = process_raw_data(df_raw, parse_type)
+        if not os.path.exists(raw_file):
+            st.warning(f"⚠️ 未找到对应的数据文件：{raw_filename}。请先完成步骤 2 中该类型的提取。")
+        else:
+            df_raw = pd.read_csv(raw_file)
+            st.write(f"📂 读取数据源: `{raw_filename}`")
+            st.write("原始数据预览:", df_raw.head(3))
             
-           # 2. 合并地区列 (确保数据对齐)
-            # 关键：确保 parsed_df 的索引与 df_raw 一致，防止错位
-            parsed_df.index = df_raw.index 
-            
-            # 使用 join 或者 concat (axis=1)
-            # 只取 '地区' 列和新生成的特征列
-            final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
-            
-            # 3. 构造输出文件名 (parsed_landuse.csv, parsed_issue.csv ...)
-            out_name = f"parsed_{task_suffix}.csv"
-            save_path = os.path.join(DIRS["result"], out_name)
-            
-            # 4. 保存
-            final_df.to_csv(save_path, index=False, encoding='utf-8-sig')
-            
-            st.success(f"✅ 解析成功！结果已保存至: {out_name}")
-            st.dataframe(final_df.head())
-            
+            if col2.button("数据解析", type="primary"):
+                # 1. 调用 utils_parsers 中的处理函数
+                # process_raw_data 会返回纯特征数据的 DataFrame (不含地区列)
+                parsed_df = process_raw_data(df_raw, parse_type)
+                
+                # 2. 合并地区列 (确保数据对齐)
+                # 关键：确保 parsed_df 的索引与 df_raw 一致，防止错位
+                parsed_df.index = df_raw.index 
+                
+                # 使用 join 或者 concat (axis=1)
+                # 只取 '地区' 列和新生成的特征列
+                final_df = pd.concat([df_raw[['地区']], parsed_df], axis=1)
+                
+                # 3. 构造输出文件名 (parsed_landuse.csv, parsed_issue.csv ...)
+                out_name = f"parsed_{task_suffix}.csv"
+                save_path = os.path.join(DIRS["result"], out_name)
+                
+                # 4. 保存
+                final_df.to_csv(save_path, index=False, encoding='utf-8-sig')
+                
+                st.success(f"✅ 解析成功！结果已保存至: {out_name}")
+                st.dataframe(final_df.head())
+    # 手动上传外部数据
+    with tab2:
+        st.markdown("""
+        **功能说明：** 如果某些数据（如空间布局规划）无法通过 PDF 提取，或者您已经有整理好的 Excel/CSV 数据，可以直接在此处上传。
+        系统会自动将其保存为标准格式，以便后续步骤进行融合。
+        """)
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            upload_type = st.selectbox("选择上传的数据类型", list(TASK_DICT.keys()), key="upload_type_sel")
+            target_suffix = TASK_DICT[upload_type]
+        with c2:
+            # 生成模板下载
+            st.write("📝 **数据格式要求：**")
+            st.caption("必须包含 `地区` 列，其他列为特征数值。")
+            # 获取对应的模板列名
+            cols = TEMPLATE_COLUMNS.get(target_suffix, TEMPLATE_COLUMNS["default"])
+            template_df = pd.DataFrame(columns=cols)
+            template_csv = template_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(f"📥 下载 {upload_type} 模板", template_csv, f"template_{target_suffix}.csv", "text/csv")
+
+        uploaded_ext = st.file_uploader("上传处理好的文件 (.csv / .xlsx)", type=["csv", "xlsx"])
+        
+        if uploaded_ext:
+            try:
+                # 读取文件
+                if uploaded_ext.name.endswith('.csv'):
+                    ext_df = pd.read_csv(uploaded_ext)
+                else:
+                    ext_df = pd.read_excel(uploaded_ext)
+                # 简单校验
+                if "地区" not in ext_df.columns:
+                    st.error("❌ 上传失败：文件中缺少 `地区` 列！请参照模板格式。")
+                    st.write("当前列名:", list(ext_df.columns))
+                else:
+                    # 预览
+                    st.write("📊 数据预览:", ext_df.head())
+                    
+                    # 保存按钮
+                    if st.button("💾 确认并保存"):
+                        target_name = f"parsed_{target_suffix}.csv"
+                        save_path = os.path.join(DIRS["result"], target_name)
+                        
+                        # 强制转为 csv utf-8-sig
+                        ext_df.to_csv(save_path, index=False, encoding='utf-8-sig')
+                        
+                        st.success(f"✅ 文件已保存为: `{target_name}`")
+                        st.info("💡 现在您可以前往 **步骤 4**，该文件将自动参与数据融合。")
+                        
+            except Exception as e:
+                st.error(f"文件读取失败: {e}")
     render_file_manager(DIRS["result"], title="已解析的结构化数据", file_ext=".csv", key_prefix="step3")
     
 # # ========================================================
@@ -548,17 +618,6 @@ elif step == "4. 数据融合&展示":
             default=sorted_csvs
         )
         
-        sorted_csvs = []
-        for kw in order_keywords:
-            for f in csvs:
-                if kw in f and f not in sorted_csvs:
-                    sorted_csvs.append(f)
-        # 把剩下没匹配到的加到后面
-        for f in csvs:
-            if f not in sorted_csvs:
-                sorted_csvs.append(f)
-        
-        selected = st.multiselect("选择要融合的文件 (已自动排序)", sorted_csvs, default=sorted_csvs)
         c1, c2 = st.columns([1, 2])
         with c1:
             use_log = st.checkbox("☑️ 启用 Log1p 对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
@@ -599,7 +658,6 @@ elif step == "4. 数据融合&展示":
                             st.warning(f"⚠️ 警告：当前特征列数 ({X_final.shape[1]}) 可能少于预期，归一化可能会出错或索引越界。建议确保上传了所有 5 类数据。")
                         
                         X_norm = preprocess_X(X_final)
-                        
                         # 3. 保存归一化后的矩阵
                         final_df = pd.DataFrame(X_norm, index=regions, columns=all_feature_names)
                         save_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
