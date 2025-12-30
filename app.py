@@ -594,6 +594,7 @@ elif step == "4. 数据融合&展示":
     st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)及可视化展示")
     # 扫描已解析的 CSV
     csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
+    # 结果路径
     norm_res_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
     raw_res_path = os.path.join(DIRS["result"], "parsed_raw_matrix.csv")
     
@@ -617,7 +618,6 @@ elif step == "4. 数据融合&展示":
             target_name = f"parsed_{suffix}.csv"
             if target_name in csvs:
                 default_files.append(target_name)
-        
         # 3. 构建所有选项列表 (All Options) - 核心在前，其他在后
         # 这样用户可以看到所有 parsed_*.csv，但默认只选对的 5 个
         other_files = [f for f in csvs if f not in default_files]
@@ -634,15 +634,14 @@ elif step == "4. 数据融合&展示":
         
         c1, c2 = st.columns([1, 2])
         with c1:
-            use_log = st.checkbox("☑️ 启用 Log1p 对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
+            use_log = st.checkbox("☑️ 启用对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
         with c2:
             start_btn = st.button("开始融合与归一化", type="primary")
         if  start_btn:
             if not selected:
                 st.error("请至少选择一个文件。")
             else:
-                matrices, maps, names = [], [], []
-                all_feature_names = []
+                matrices, maps, names,all_feature_names = [], [], [],[]
                 # 按照排序后的 selected 列表读取
                 for f in selected:
                     path = os.path.join(DIRS["result"], f)
@@ -667,21 +666,23 @@ elif step == "4. 数据融合&展示":
                     try:
                         st.info(f"正在处理... (Log变换: {use_log})")
                         X_norm = preprocess_X(X_final, use_log=use_log)
+                        
                         final_df = pd.DataFrame(X_norm, index=regions, columns=all_feature_names)
-                        final_df.to_csv(norm_res_path, encoding='utf-8-sig')
+                        final_df.index.name = "地区"
+                        final_df.to_csv(norm_res_path, encoding='utf-8-sig', index_label="地区")
                         
                         raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
-                        raw_df.to_csv(raw_res_path, encoding='utf-8-sig')
+                        raw_df.index.name = "地区"
+                        raw_df.to_csv(raw_res_path, encoding='utf-8-sig', index_label="地区")
+
                         st.rerun()
                     except Exception as e:
                             st.error(f"归一化失败: {e}")
                 else:
                         st.error("融合失败：所选数据表之间没有公共地区。")
-    # === 可视化看板 (新增) ===
     if os.path.exists(norm_res_path):
         st.divider()
         st.subheader("🎨 多维度可视化看板")
-        
         # 1. 准备可视化选项
         vis_options = {"🏆 最终融合矩阵 (归一化)": norm_res_path}
         # 自动扫描并添加分项数据
@@ -698,11 +699,12 @@ elif step == "4. 数据融合&展示":
         try:
             if "最终融合" in selected_vis:
                 df_vis = pd.read_csv(target_path, index_col=0)
-                st.caption("展示最终融合并归一化后的全量数据。")
+                do_norm = False
             else:
                 df_vis = pd.read_csv(target_path)
                 if "地区" in df_vis.columns: df_vis = df_vis.set_index("地区")
                 # 筛选数值列
+                else: df_vis = df_vis.set_index(df_vis.columns[0])
                 df_vis = df_vis.select_dtypes(include=['number'])
                 
                 with c_vis2:
