@@ -275,7 +275,7 @@ if step == "1. 文档上传与裁剪":
                     # === 关键：使用标准后缀生成文件名 ===
                     task_suffix = TASK_DICT[manual_task_type]
                     # 生成如 "东莞-凤岗_landuse.pdf"
-                    dst_name = f"{info['文件名']}_{task_suffix}.pdf"
+                    dst_name = f"{info['原始文件名']}_{task_suffix}.pdf"
                     dst_path = os.path.join(DIRS["crop"], dst_name)
                     # check file replace
                     if os.path.exists(dst_path):
@@ -349,146 +349,122 @@ if step == "1. 文档上传与裁剪":
 # 2. 数据提取 (API)
 # ========================================================
 elif step == "2. 大模型数据获取":
-    st.header("🤖 步骤 2: 调用大模型智能体获取数据")
-    # 1. 扫描文件
-    files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]    
-    if not files:
-        st.warning("⚠️ 暂无已裁剪文件，请先完成步骤 1。")
+    st.header("🤖 步骤 2: 调用 AI 提取数据")
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        task_type = st.selectbox("选择分析任务类型", list(TASK_DICT.keys()))
+    with col2:
+        use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
+    
+    # 获取对应的后缀标识
+    target_suffix = TASK_DICT.get(task_type)
+    
+    # 2. 扫描并过滤文件
+    if not os.path.exists(DIRS["crop"]):
+        st.warning("⚠️ 裁剪目录不存在。")
     else:
-        # 2. 文件名清洗预览
-        st.subheader("1️⃣ 文件名清洗与地区识别")
-        file_info_list = []
-        for f in files:
-            info = parser_file(f) # 调用 utils_pdf 中的新函数
-            file_info_list.append(info)
+        all_pdfs = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
         
-        info_df = pd.DataFrame(file_info_list)
-        st.dataframe(info_df[["文件名", "城市", "地区/县","详细单元"]], use_container_width=True)
-
-        st.divider()
+        # === 核心修改：只筛选符合当前任务后缀的文件 ===
+        # 例如选了"存在问题"，只找 xxx_issue.pdf
+        target_files = [f for f in all_pdfs if f.endswith(f"_{target_suffix}.pdf")]
         
-        # 3. 任务配置
-        st.subheader("2️⃣ 开始提取")
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            task_type = st.selectbox("选择分析任务类型", list(TASK_DICT.keys()))
-        with col2:
-            use_mock = st.checkbox("使用模拟数据 (调试用)", value=True)
+        if not target_files:
+            st.warning(f"⚠️ 未找到后缀为 `_{target_suffix}.pdf` 的文件。")
+            st.info("请回到 **步骤 1**，选择对应的数据类型并执行裁剪。")
+        else:
+            st.subheader(f"1️⃣ 待处理文件列表 ({len(target_files)} 个)")
             
-        if st.button("🚀 大模型分析", type="primary"):
-            results = []
-            progress_bar = st.progress(0)
-            log_container = st.container() # 用于显示实时日志
+            # 预览文件信息
+            file_info_list = []
+            for f in target_files:
+                info = extract_info(f)
+                file_info_list.append(info)
             
-            # 初始化客户端
-            client = None
-            if not use_mock:
-                client = CozeClient() 
-                workflow_id = WORKFLOW_CONFIG.get(task_type)
-            # 开始循环处理
-            for i, info in enumerate(file_info_list):
-                file_name = info["原始文件名"]
-                # 这里的“新文件名”实际上就是步骤1生成的规范化文件名 (例如: 潮州-湘桥_问题)
-
-                region_name = info["文件名"] 
+            st.dataframe(
+                pd.DataFrame(file_info_list)[["原始文件名", "新文件名", "城市", "地区/县"]], 
+                height=150,
+                use_container_width=True
+            )
+            
+            st.divider()
+            st.subheader("2️⃣ 开始提取")
+            
+            if st.button("🚀 发送至扣子(Coze)进行分析", type="primary"):
+                results = []
+                progress_bar = st.progress(0)
+                log_container = st.container()
                 
-                file_path = os.path.join(DIRS["crop"], file_name)
+                client = None
+                workflow_id = None
+                if not use_mock:
+                    client = CozeClient()
+                    workflow_id = WORKFLOW_CONFIG.get(task_type) # 直接用完整key或简单key，取决于api_client配置
+                    # 如果 api_client 里的 keys 是简单的，这里要做映射
+                    # 假设 api_client 里的 keys 和 TASK_DICT 的 keys 一致
                 
-                # --- UI 显示当前状态 ---
-                with log_container:
-                    status_expander = st.expander(f"🔄 正在处理: {region_name} ...", expanded=True)
-                    with status_expander:
-                        st.write(f"📄 文件: `{file_name}`")
-                        # --- 调用 API ---
-                        raw_data = None
-                        try:
-                            if use_mock:
-                                time.sleep(0.5)
-                                raw_data = get_mock_data(file_path, task_type)
-                                st.info("✅ 模拟数据获取成功")
-                            else:
-                                st.write("📤 上传文件中...")
-                                file_id = client.upload_file(file_path)
-                                if file_id:
-                                    st.write("🤖 AI 思考中...")
-                                    raw_data = client.run_workflow(workflow_id, file_id)
-                                    if raw_data:
-                                        st.success("✅ 工作流执行成功")
-                                    else:
-                                        st.error("❌ 工作流返回为空")
-                                else:
-                                    st.error("❌ 上传失败")
-                                time.sleep(1) # 限流保护
-                        except Exception as e:
-                            st.error(f"❌ 发生异常: {e}")
-                        # --- 显示输出内容 ---
-                        if raw_data:
-                            st.markdown("**🔎 输出内容预览:**")
+                # 只遍历筛选后的文件
+                for i, info in enumerate(file_info_list):
+                    file_name = info["原始文件名"]
+                    file_path = os.path.join(DIRS["crop"], file_name)
+                    region_name = info["新文件名"] 
+                    
+                    with log_container:
+                        status_expander = st.expander(f"🔄 正在处理: {region_name} ...", expanded=True)
+                        with status_expander:
+                            st.write(f"📄 文件: `{file_name}`")
+                            raw_data = None
                             try:
-                                json_data = json.loads(raw_data)
-                                st.json(json_data)
-                                if "output" in json_data:
-                                    st.text_area("解析文本", json_data["output"], height=200)
-                            except:
-                                st.text(raw_data)
-                            # 保存结果
-                            results.append({
-                                "地区": region_name,
-                                "rawdata": raw_data,
-                            })
-                # 更新总进度
-                progress_bar.progress((i + 1) / len(files))
-            
-            # 循环结束
-            st.success(f"🎉 所有文件处理完成！成功获取 {len(results)} 条数据。")
-            
-            # 保存到 CSV
-            if results:
-                df_result = pd.DataFrame(results)
-                task_suffix = TASK_DICT[task_type]
-                save_filename = f"coze_raw_output_{task_suffix}.csv"
-                save_path = os.path.join(DIRS["raw"], save_filename)
+                                if use_mock:
+                                    time.sleep(0.5)
+                                    # 传入类型，模拟不同数据
+                                    raw_data = get_mock_data(file_path, task_type.split(' ')[0])
+                                    st.info("✅ 模拟数据获取成功")
+                                else:
+                                    if not workflow_id:
+                                        st.error(f"❌ 未配置 '{task_type}' 的 Workflow ID")
+                                    else:
+                                        st.write("📤 上传中...")
+                                        file_id = client.upload_file(file_path)
+                                        if file_id:
+                                            st.write("🤖 分析中...")
+                                            raw_data = client.run_workflow(workflow_id, file_id)
+                                            if raw_data: st.success("✅ 成功")
+                                            else: st.error("❌ 返回为空")
+                                        else: st.error("❌ 上传失败")
+                                        time.sleep(1)
+                            except Exception as e:
+                                st.error(f"❌ 异常: {e}")
+                            
+                            if raw_data:
+                                try:
+                                    json_data = json.loads(raw_data)
+                                    if "output" in json_data:
+                                        st.text_area("Output 文本", json_data["output"], height=200)
+                                except: pass
+                                results.append({
+                                    "地区": region_name, 
+                                    "rawdata": raw_data, 
+                                    "原始文件名": file_name
+                                })
+                    
+                    progress_bar.progress((i + 1) / len(target_files))
                 
-                df_result.to_csv(save_path, index=False, encoding='utf-8-sig')
-                st.write(f"数据已保存至: `{save_path}`")
-                st.dataframe(df_result.head())
+                st.success(f"🎉 处理完成！获取 {len(results)} 条数据。")
+                
+                if results:
+                    df_result = pd.DataFrame(results)
+                    # 保存文件名带上后缀，对应 Step 3 的读取
+                    save_filename = f"coze_raw_output_{target_suffix}.csv"
+                    save_path = os.path.join(DIRS["raw"], save_filename)
+                    
+                    df_result.to_csv(save_path, index=False, encoding='utf-8-sig')
+                    st.write(f"数据已分类保存至: `{save_path}`")
+                    st.dataframe(df_result.head())
             
-    # 保存文件可视化 & 下载
-    st.divider()
-    st.subheader("📂 结果文件管理")
-    coze_files = []
-    if os.path.exists(DIRS["raw"]):
-        coze_files = [f for f in os.listdir(DIRS["raw"]) if f.endswith(".csv")]
-    if coze_files:
-        # 2. file list display
-        st.dataframe(pd.DataFrame(coze_files, columns=["大模型解析生成的数据文件"]), use_container_width=True)
-        
-        col_preview, col_down = st.columns([2, 1])
-        with col_preview:
-            # 3. file preview
-            selected_preview = st.selectbox("选择文件进行预览:", coze_files, key="preview_sel")
-            if selected_preview:
-                preview_path = os.path.join(DIRS["raw"], selected_preview)
-                try:
-                    pre_df = pd.read_csv(preview_path)
-                    st.write(f"📊 `{selected_preview}` 数据预览 (前 5 行):")
-                    st.dataframe(pre_df.head())
-                except Exception as e:
-                    st.error(f"读取失败: {e}")
-        with col_down:
-            # 4. download 
-            if selected_preview:
-                preview_path = os.path.join(DIRS["raw"], selected_preview)
-                with open(preview_path, "rb") as f:
-                    st.download_button(
-                        label=f"📥 下载 {selected_preview}",
-                        data=f,
-                        file_name=selected_preview,
-                        mime="text/csv",
-                        type="primary"
-                    )
-    else:
-        st.info("暂无生成的原始数据文件。")        
+    # 文件管理
+    render_file_manager(DIRS["raw"], title="已获取的原始数据文件", file_ext=".csv", key_prefix="step2")
+    
 # # ========================================================
 # # 3. 数据解析
 # # ========================================================
