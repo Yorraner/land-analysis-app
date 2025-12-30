@@ -382,7 +382,7 @@ elif step == "2. 大模型数据获取":
                 file_info_list.append(info)
             
             st.dataframe(
-                pd.DataFrame(file_info_list)[["原始文件名", "新文件名", "城市", "地区/县"]], 
+                pd.DataFrame(file_info_list)[["原始文件名", "文件名", "城市", "地区/县"]], 
                 height=150,
                 use_container_width=True
             )
