@@ -401,7 +401,7 @@ elif step == "2. 大模型数据获取":
                 for i, info in enumerate(file_info_list):
                     file_name = info["原始文件名"]
                     file_path = os.path.join(DIRS["crop"], file_name)
-                    region_name = info["新文件名"] 
+                    region_name = info["文件名"] 
                     with log_container:
                         status_expander = st.expander(f"🔄 正在处理: {region_name} ...", expanded=True)
                         with status_expander:
