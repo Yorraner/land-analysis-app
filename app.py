@@ -87,7 +87,7 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
     if files:
         # 1. file table display
         df_files = pd.DataFrame(files, columns=["文件名"])
-        st.dataframe(df_files, use_container_width=True, height=150)
+        st.dataframe(df_files, width="stretch", height=150)
         
         # 2. file delete
         with st.expander("🗑️ 管理/删除文件"):
@@ -296,7 +296,7 @@ if step == "1. 文档上传与裁剪":
     
     if cropped_files:
         # 1. 列表展示
-        st.dataframe(pd.DataFrame(cropped_files, columns=["已生成的文件名"]), use_container_width=True, height=200)
+        st.dataframe(pd.DataFrame(cropped_files, columns=["已生成的文件名"]), width="stretch", height=200)
         
         with st.expander("🗑️ 管理/删除已处理文件"):
             files_to_delete = st.multiselect("选择要删除的文件 (支持多选)", cropped_files)
@@ -381,7 +381,7 @@ elif step == "2. 大模型数据获取":
             st.dataframe(
                 pd.DataFrame(file_info_list)[["原始文件名", "文件名", "城市", "地区/县"]], 
                 height=150,
-                use_container_width=True
+                width="stretch"
             )
             
             st.divider()

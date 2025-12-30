@@ -1,0 +1,17 @@
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== Streamlit / 临时工作区 =====
+temp_workspace/*
+
+
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== 虚拟环境 =====
+venv/
+.env/
