@@ -218,59 +218,95 @@ def parser_file(filename):
         }
         
 def extract_info(filename):
-    """解析单个文件名，返回字典"""
+    """
+    解析文件名，返回字典。
+    兼容两种模式：
+    1. 已清洗过的格式：'东莞-凤岗_landuse.pdf' -> 提取为 东莞, 凤岗
+    2. 原始长文件名：'东莞市凤岗镇全域...pdf' -> 提取为 东莞市, 凤岗镇
+    """
     city = "未知城市"
-    district = ""
+    district = "-" 
     unit = ""
     
-    # 移除裁剪后缀，还原原始语义以便解析
-    clean_filename = filename.replace("_cropped.pdf", "").replace("_manual_crop.pdf", "")
+    # 1. 基础清洗：去掉 .pdf
+    clean_name = filename.replace(".pdf", "")
     
-    # --- 提取基础信息 ---
+    # 2. 剥离任务后缀 (这是关键！把 _landuse, _issue 等去掉，还原成 地区-区县)
+    # 正则解释：匹配下划线开头，后面跟着任务名，直到字符串结束
+    clean_name = re.sub(r'(_landuse|_issue|_potential|_project|_spatial|_data|_cropped|_manual).*$', '', clean_name)
+
+    # === 策略 A: 处理已经清洗过的短横线格式 (City-District-Unit) ===
+    # 如果名字里有横线，说明这是我们自己生成的文件，直接切分即可
+    if '-' in clean_name:
+        parts = clean_name.split('-')
+        # 只有一段： '东莞'
+        if len(parts) >= 1:
+            city = parts[0]
+        # 有两段： '东莞-凤岗'
+        if len(parts) >= 2:
+            district = parts[1]
+        # 有三段： '东莞-凤岗-官井头'
+        if len(parts) >= 3:
+            unit = parts[2]
+            
+        return {
+            "原始文件名": filename,
+            "文件名": clean_name, # 用于显示的纯地区名
+            "城市": city,
+            "地区/县": district if district else "-",
+            "详细单元": unit if unit else "无"
+        }
+
+    # === 策略 B: 处理原始长文件名 (Regex 匹配) ===
     # 匹配规则：以"市"结尾的前缀 + 中间区域名 + 关键词
-    match = re.search(r'^(.+?市)(.+?)(?:全域|实施|项目|永久)', clean_filename)
+    match = re.search(r'^(.+?市)(.+?)(?:全域|实施|项目|永久|土地)', clean_name)
     if match:
         city = match.group(1)
         district = match.group(2)
     else:
-        if "广州市-湛江市" in clean_filename:
+        # 特殊规则兜底
+        if "广州市-湛江市" in filename:
             city = "广州湛江合作园"
             district = "奋勇高新区"
-    
+        elif "市" in clean_name and city == "未知城市":
+            # 最后的尝试：按“市”字切分
+            try:
+                idx = clean_name.index("市")
+                city = clean_name[:idx+1]
+                district = clean_name[idx+1:]
+            except: pass
     # 提取括号内容
-    unit_match = re.search(r'[（\(](.+?)[）\)]', clean_filename)
+    unit_match = re.search(r'[（\(](.+?)[）\)]', filename)
     if unit_match:
         unit = unit_match.group(1)
     
-    # --- 数据清洗与格式化 ---
-    
-    # 1. 城市简写
+    # --- 数据清洗与格式化 (针对原始文件名) ---
     short_city = city.replace("市", "")
-    
-    # 2. 区县简写
     short_district = district
+    
+    # 清洗区县后缀
     for suffix in ["市", "区", "县", "镇", "街道", "自治县", "新区", "管理区", "开发区", "特别合作区"]:
         if short_district.endswith(suffix) and len(short_district) > len(suffix):
-             # 保护如“南区”这样的短名
             if short_district == "南区" and suffix == "区": continue
             short_district = short_district.replace(suffix, "")
-            break  
-    # 3. 单元简写
+            break
+            
     short_unit = unit
     for suffix in ["实施单元", "单元", "镇", "街道", "片区", "实施方案"]:
         short_unit = short_unit.replace(suffix, "")
     
-    # --- 生成新文件名 (作为地区ID) ---
-    if short_unit:
-        new_name = f"{short_city}-{short_district}-{short_unit}"
-    else:
-        new_name = f"{short_city}-{short_district}"
+    # 组装标准化名字
+    components = [short_city]
+    if short_district and short_district != "-": components.append(short_district)
+    if short_unit: components.append(short_unit)
+    
+    new_name = "-".join(components)
 
     return {
         "原始文件名": filename,
-        "文件名": new_name, # 这里不带 .pdf 后缀，方便直接做地区ID
+        "文件名": new_name,
         "城市": city,
-        "地区/县": district,
+        "地区/县": short_district if short_district else "-",
         "详细单元": unit if unit else "无"
     }
     

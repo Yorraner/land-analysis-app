@@ -365,8 +365,6 @@ elif step == "2. 大模型数据获取":
     else:
         all_pdfs = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
         
-        # === 核心修改：只筛选符合当前任务后缀的文件 ===
-        # 例如选了"存在问题"，只找 xxx_issue.pdf
         target_files = [f for f in all_pdfs if f.endswith(f"_{target_suffix}.pdf")]
         
         if not target_files:
@@ -374,7 +372,6 @@ elif step == "2. 大模型数据获取":
             st.info("请回到 **步骤 1**，选择对应的数据类型并执行裁剪。")
         else:
             st.subheader(f"1️⃣ 待处理文件列表 ({len(target_files)} 个)")
-            
             # 预览文件信息
             file_info_list = []
             for f in target_files:
@@ -400,15 +397,11 @@ elif step == "2. 大模型数据获取":
                 if not use_mock:
                     client = CozeClient()
                     workflow_id = WORKFLOW_CONFIG.get(task_type) # 直接用完整key或简单key，取决于api_client配置
-                    # 如果 api_client 里的 keys 是简单的，这里要做映射
-                    # 假设 api_client 里的 keys 和 TASK_DICT 的 keys 一致
-                
                 # 只遍历筛选后的文件
                 for i, info in enumerate(file_info_list):
                     file_name = info["原始文件名"]
                     file_path = os.path.join(DIRS["crop"], file_name)
                     region_name = info["新文件名"] 
-                    
                     with log_container:
                         status_expander = st.expander(f"🔄 正在处理: {region_name} ...", expanded=True)
                         with status_expander:
