@@ -15,3 +15,8 @@ Thumbs.db
 # ===== 虚拟环境 =====
 venv/
 .env/
+
+# ===== save files =====
+*.xlsx
+*.pkl
+*.csv
