@@ -10,9 +10,10 @@ from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, \
     extract_info,parser_file,extract_pages_by_keywords,dict_save2csv
 from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
-from utils_vis import plot_heatmap # 引入可视化
+from utils_vis import plot_heatmap ,plot_horizontal_bars_from_df,plot_category_radar_chart,plot_clusters
 from utils_parse import process_raw_data
 from style import set_bg_hack
+from algorithm import clustering_kmeans_with_entropy_expert,build_weight_vector
 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
@@ -495,7 +496,9 @@ elif step == "2. 大模型数据获取":
 elif step == "3. 数据解析":
     st.header("🧹 步骤 3: 结构化解析")
     # === 使用 Tabs 分流：正常解析 vs 手动上传 ===
-    tab1, tab2 = st.tabs(["⚙️ 解析原始数据", "📤 上传外部数据 (补充缺失项)"])
+    tab1, tab2,tab3 = st.tabs(["⚙️ 解析原始数据", 
+                               "📤 上传外部数据 (补充缺失项)",
+                               "🔄 加载历史中间数据 (.pkl)"])
     
     # 正常数据解析
     with tab1:
@@ -585,6 +588,82 @@ elif step == "3. 数据解析":
                         
             except Exception as e:
                 st.error(f"文件读取失败: {e}")
+    with tab3:
+        st.markdown("""
+        **功能说明：** 如果您之前保存了处理过程中的 `.pkl` (Pickle) 文件，可以直接在此处恢复。
+        系统会自动将其转换为标准格式，**您可以直接跳过解析步骤，直接进行步骤 4 的融合与步骤 5 的分类**。
+        """)
+        uploaded_pkl = st.file_uploader("上传处理好的 .pkl 字典文件", type=["pkl"], key="tab3_uploader")
+        
+        if uploaded_pkl:
+            try:
+                # 1. 读取 Pickle
+                data_dict = pd.read_pickle(uploaded_pkl)
+                # 2. 检查数据结构 (基于你提供的 keys)
+                required_keys = {'X', 'features', 'regions'}
+                # 允许 X_norm 不存在（兼容旧数据），但必须有 X
+                if isinstance(data_dict, dict) and required_keys.issubset(data_dict.keys()):
+                    st.success("✅ 检测到合法的特征字典结构！")
+                    
+                    # 获取维度信息
+                    regions = data_dict['regions']
+                    feats = data_dict['features']
+                    
+                    st.write(f"📊 数据维度: {len(regions)} 个地区 × {len(feats)} 个特征")
+                    
+                    # 3. 选择要恢复的数据版本
+                    # 既然已经有 X_norm，我们允许用户选择是否直接使用它
+                    use_norm_data = st.checkbox("使用已归一化的数据 (X_norm)", value=True, 
+                                              help="如果选中，将使用 pkl 中的 X_norm 直接生成最终矩阵；否则使用 X 重新生成。")
+                    matrix_data = data_dict['X_norm'] if (use_norm_data and 'X_norm' in data_dict) else data_dict['X']
+                    
+                    # 4. 重构 DataFrame
+                    # 确保矩阵形状匹配
+                    if len(regions) == matrix_data.shape[0] and len(feats) == matrix_data.shape[1]:
+                        df_reconstructed = pd.DataFrame(matrix_data, index=regions, columns=feats)
+                        df_reconstructed.index.name = "地区"
+                        
+                        st.dataframe(df_reconstructed.head(3))
+                        col_btn1, col_btn2 = st.columns([1,2])
+                        with col_btn1:
+                            if st.button("🚀 恢复为最终矩阵", type="primary"):
+                                # === 核心操作：直接生成 Step 4 的产出文件 ===
+                                # 保存为 parsed_final_matrix.csv，这样 Step 5 可以直接读取
+                                save_path_final = os.path.join(DIRS["result"], "parsed_final_matrix.csv") # 这个名称是否需要更改，这是原始操作得到的结果
+                                df_reconstructed.to_csv(save_path_final, encoding='utf-8-sig')
+                                
+                                # 同时保存一份 raw 用于备份 (如果有 X 的话)
+                                if 'X' in data_dict:
+                                    df_raw_backup = pd.DataFrame(data_dict['X'], index=regions, columns=feats)
+                                    df_raw_backup.index.name = "地区"
+                                    df_raw_backup.to_csv(os.path.join(DIRS["result"], "parsed_raw_matrix.csv"), encoding='utf-8-sig')
+                                
+                                st.success(f"✅ 数据已恢复！")
+                                st.info("💡 您现在可以直接点击侧边栏的 **'5. 数据分类与导出'** 进行分析。")
+                    else:
+                        st.error(f"❌ 维度不匹配：地区数 {len(regions)} vs 矩阵行数 {matrix_data.shape[0]}")
+                
+                # --- 兼容逻辑：如果上传的是普通 DataFrame pkl ---
+                elif isinstance(data_dict, pd.DataFrame):
+                    st.info("📦 检测到普通 DataFrame 格式 (非字典)。")
+                    df_pkl = data_dict
+                    if "地区" not in df_pkl.columns and df_pkl.index.name == "地区":
+                        df_pkl = df_pkl.reset_index()
+                    
+                    st.write("预览:", df_pkl.head(3))
+                    if st.button("💾 转存为 CSV (需经步骤4融合)", key="save_df_pkl"):
+                        # 普通 DataFrame 通常是中间态，建议走步骤4
+                        pkl_task_type = st.selectbox("选择数据类型", list(TASK_DICT.keys()))
+                        target_name = f"parsed_{TASK_DICT[pkl_task_type]}.csv"
+                        df_pkl.to_csv(os.path.join(DIRS["result"], target_name), index=False, encoding='utf-8-sig')
+                        st.success(f"已保存为 {target_name}，请前往步骤 4 融合。")
+                        
+                else:
+                    st.error(f"❌ 未知的数据结构。Keys: {data_dict.keys() if isinstance(data_dict, dict) else type(data_dict)}")
+
+            except Exception as e:
+                st.error(f"❌ 读取出错: {e}")
+        
     render_file_manager(DIRS["result"], title="已解析的结构化数据", file_ext=".csv", key_prefix="step3")
 # # ========================================================
 # # 4. 数据融合
@@ -765,10 +844,8 @@ elif step == "5. 数据分类与导出":
         
         st.subheader("🛠️ 模型参数配置")
         col1, col2 = st.columns([1, 2])
-        
         with col1:
             n_clusters = st.slider("聚类类别数目 (K)", min_value=2, max_value=10, value=3)
-            
         with col2:
             st.markdown("**⚖️ 权重设定 (专家打分)**")
             weight_settings = {}
@@ -784,39 +861,78 @@ elif step == "5. 数据分类与导出":
                 with c4: weight_settings["存在问题"] = st.number_input("4. 存在问题", value=0.1, step=0.05)
                 weight_settings["子项目数据"] = st.number_input("5. 子项目", value=0.05, step=0.01)
 
-        # 3. 执行分析
+        # 3. algorithm
         if st.button("🚀 开始聚类分析", type="primary"):
             try:
                 total_feats = df_matrix.shape[1]
-                # 构建权重向量
-                weights_vec = build_weight_vector(weight_settings, total_feats)
-                
-                # 执行聚类
-                labels, X_pca, X_final = perform_clustering(df_matrix, n_clusters, weights_vec)
-                
-                # 结果处理
-                df_matrix['Cluster_ID'] = labels
-                df_matrix['Cluster_Label'] = df_matrix['Cluster_ID'].apply(lambda x: f"类别 {x+1}")
-                
+                weights_vec = build_weight_vector(weight_settings, df_matrix.columns)
+                print(f"权重向量形状: {weights_vec.shape}, 特征列数: {len(df_matrix.columns)}")
+                with st.spinner("正在进行熵权专家聚类..."):
+                    df_result, feature_imp, combined_weights, centroids, labels = \
+                        clustering_kmeans_with_entropy_expert(
+                            df_matrix.values, 
+                            df_matrix.index.tolist(), 
+                            expert_weights=weights_vec, 
+                            n_clusters=n_clusters
+                        )
+
                 st.success("✅ 聚类完成！")
                 
-                # 可视化展示
-                st.subheader("📈 聚类结果可视化 (PCA)")
-                fig = plot_clusters(X_pca, labels, df_matrix.index)
-                st.pyplot(fig)
-                
-                # 结果列表
-                st.subheader("📋 分类结果表")
-                st.dataframe(df_matrix[['Cluster_Label']].sort_values('Cluster_Label'))
-                
-                # 下载按钮
-                st.download_button(
-                    "📥 下载带分类结果的 CSV", 
-                    df_matrix.to_csv(encoding='utf-8-sig'), 
-                    "clustered_result.csv", 
-                    "text/csv"
-                )
+                # Tab 分页展示不同图表
+                # tab_res1, tab_res2, tab_res3, tab_res4 = st.tabs(["📋 结果总表", "🕸️ 类别特征分布(雷达图)", "📊 地区概率分布(条形图)", "📈 降维分布(PCA)"])
+                tab_res1, tab_res2, tab_res3 = st.tabs(["📋 结果总表", "🕸️ 类别特征分布(雷达图)", "📊 地区概率分布(条形图)"])
+                with tab_res1:
+                    st.dataframe(df_result)
+                    st.download_button("📥 下载详细结果 Excel", 
+                                     data=df_result.to_csv().encode('utf-8-sig'),
+                                     file_name="clustering_result_full.csv")
+
+                with tab_res2:
+                    st.subheader("各类别主要关注特征 (Centroids × Weights)")
+                    # 1. 准备权重
+                    if isinstance(combined_weights, pd.Series):
+                        analysis_weights = combined_weights.values
+                    else:
+                        analysis_weights = combined_weights
+                    if analysis_weights.shape[0] != df_matrix.shape[1]:
+                         st.error(f"权重维度 {analysis_weights.shape} 与特征数 {df_matrix.shape[1]} 不符")
+                    else:
+                        # 2. 准备容器
+                        # features = df_matrix.columns.tolist() # 确保拿到特征名列表
+                        features = df_matrix.columns
+                        category_feature_attention = pd.DataFrame(
+                            index=features, 
+                            columns=[f"Cluster_{i+1}" for i in range(n_clusters)]
+                        )
+                        # 3. 核心计算循环
+                        # centroids 是 (n_clusters, n_features) 的 numpy 数组
+                        for k in range(n_clusters):
+                            # 获取第 k 类的中心点坐标 (归一化后的平均值)
+                            cluster_center_profile = centroids[k]
+                            # === 核心公式：中心值 × 权重 ===
+                            # 目的：凸显那些"数值高"且"权重高"的关键特征
+                            cluster_profile = cluster_center_profile * analysis_weights
+                            # 存入 DataFrame
+                            category_feature_attention[f"Cluster_{k+1}"] = cluster_profile
+                        # 4. 调用绘图
+                        try:
+                            fig_radar = plot_category_radar_chart(category_feature_attention)
+                            st.pyplot(fig_radar)
+                        except Exception as e_plot:
+                            st.error(f"雷达图绘制失败: {e_plot}")
+
+                        # 5. 展示数据表格
+                        with st.expander("查看特征注意力数值详情"):
+                            st.dataframe(category_feature_attention.style.background_gradient(cmap='Greens'))
+                with tab_res3:
+                    st.subheader("各地区归属概率可视化")
+                    # 调用修改后的条形图函数
+                    fig_bars = plot_horizontal_bars_from_df(df_result)
+                    st.pyplot(fig_bars)
             except Exception as e:
-                st.error(f"分析出错: {e}")        
+                st.error(f"分析过程发生错误: {str(e)}")
+                # 打印详细报错方便调试
+                import traceback
+                st.text(traceback.format_exc())      
     # === 展示文件管理 ===
     render_file_manager(DIRS["final"], title="最终分类结果", file_ext=".csv", key_prefix="step5")
