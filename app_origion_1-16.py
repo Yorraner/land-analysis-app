@@ -12,43 +12,10 @@ from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG
 from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
 from utils_vis import plot_heatmap # 引入可视化
 from utils_parse import process_raw_data
-from style import set_bg_hack
 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
 
-def check_password():
-    """Returns `True` if the user had a correct password."""
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["username"] in ["admin", "user"] and st.session_state["password"] == "123456":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
-    if "password_correct" not in st.session_state:
-            set_bg_hack("./imgs/bg1.png")
-            
-            st.header("全域土地综合整治地区类型分类平台系统")
-            st.text_input("用户名", key="username")
-            st.text_input("密码", type="password", key="password")
-            st.button("登录", on_click=password_entered)
-            return False
-
-        # === 情况2：密码错误，未登录 ===
-    elif not st.session_state["password_correct"]:
-            set_bg_hack("./imgs/bg1.png")
-            st.header("全域土地综合整治地区类型分类平台的系统")
-            st.text_input("用户名", key="username")
-            st.text_input("密码", type="password", key="password")
-            st.button("登录", on_click=password_entered)
-            st.error("😕 用户名或密码错误")
-            return False
-    else:
-            return True
-
-if not check_password():
-    st.stop()
 # === 页面配置 ===
 st.set_page_config(page_title="土地整治智能分析平台", layout="wide")
 st.title("🏗️ 土地整治文档智能分类系统")
@@ -586,6 +553,7 @@ elif step == "3. 数据解析":
             except Exception as e:
                 st.error(f"文件读取失败: {e}")
     render_file_manager(DIRS["result"], title="已解析的结构化数据", file_ext=".csv", key_prefix="step3")
+    
 # # ========================================================
 # # 4. 数据融合
 # # ========================================================
@@ -742,6 +710,7 @@ elif step == "4. 数据融合&展示":
 # ========================================================
 elif step == "5. 数据分类与导出":
     st.header("📊 步骤 5: 智能分区分类")
+
     auto_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
     df_matrix = None
     # 1. 数据源选择
@@ -756,6 +725,7 @@ elif step == "5. 数据分类与导出":
         uploaded_matrix = st.file_uploader("上传特征矩阵 CSV", type=["csv"])
         if uploaded_matrix:
             df_matrix = pd.read_csv(uploaded_matrix, index_col=0)
+
     # 2. 如果数据加载成功，显示配置项
     if df_matrix is not None:
         st.divider()

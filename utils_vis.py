@@ -41,7 +41,6 @@ def get_chinese_font():
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/mnt/c/Windows/Fonts/simhei.ttf", # WSL
         "C:/Windows/Fonts/simhei.ttf",     # Windows
-        "/System/Library/Fonts/PingFang.ttc" # Mac
     ]
     
     for path in system_font_paths:
