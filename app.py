@@ -210,10 +210,10 @@ if step == "1. 文档上传与裁剪":
     tab1, tab2 = st.tabs(["🚀 批量自动裁剪", "🛠️ 手动裁剪修复"])
     with tab1:
         st.markdown("上传原始文档，系统将根据提取模式自动裁剪出关键页面。")
+        st.info("💡 提示：默认支持最大 1GB 文件。如果文件过大上传缓慢，建议先使用 PDF 压缩工具处理。")
         uploaded_files = st.file_uploader("上传 PDF 文件", type=["pdf"], accept_multiple_files=True, key="auto_uploader")
         col1, col2 = st.columns([1, 1])
         with col1:
-            # === 修改点：基于业务场景的选择 ===
             crop_task_type = st.selectbox(
                 "选择要提取的数据类型", 
                 list(TASK_DICT.keys()) + ["自定义目录匹配", "自定义全文搜索"])
@@ -253,7 +253,6 @@ if step == "1. 文档上传与裁剪":
                     src_path = os.path.join(DIRS["upload"], f.name)
                     with open(src_path, "wb") as buffer: buffer.write(f.getbuffer())
                     status.text(f"正在处理: {f.name}...")
-                    
                     # 1. 提取信息
                     info = extract_info(f.name)
                     clean_region_name = info["文件名"]
@@ -354,37 +353,94 @@ if step == "1. 文档上传与裁剪":
         st.dataframe(pd.DataFrame(cropped_files, columns=["已生成的文件名"]), width="stretch", height=200)
         
         with st.expander("🗑️ 管理/删除已处理文件"):
-            files_to_delete = st.multiselect("选择要删除的文件 (支持多选)", cropped_files)
-            if st.button("确认删除选中文件"):
+            # --- 新增功能：全选/清空按钮 ---
+            c_btn1, c_btn2, c_space = st.columns([1, 1, 4])
+            
+            # 1. 全选按钮逻辑
+            if c_btn1.button("✅ 全选"):
+                # 将多选框的 Session State 设置为当前所有文件列表
+                st.session_state["files_to_delete_key"] = cropped_files
+                st.rerun() # 强制刷新页面，让多选框立刻显示选中状态
+            
+            # 2. 清空按钮逻辑 (可选，方便取消)
+            if c_btn2.button("⬜ 清空"):
+                st.session_state["files_to_delete_key"] = []
+                st.rerun()
+            # --- 修改多选框 ---
+            # 关键点：添加 key 参数，这样上面的按钮才能控制它
+            files_to_delete = st.multiselect(
+                "选择要删除的文件 (支持多选)", 
+                cropped_files,
+                key="files_to_delete_key" 
+            )
+
+            # --- 删除执行逻辑 ---
+            if st.button("🚨 确认删除选中文件", type="primary"):
                 if files_to_delete:
-                    for f_del in files_to_delete:
+                    success_count = 0
+                    fail_count = 0 
+                    # 显示进度条 (文件多的时候体验更好)
+                    prog_bar = st.progress(0)
+                    
+                    for i, f_del in enumerate(files_to_delete):
                         path_to_del = os.path.join(DIRS["crop"], f_del)
                         try:
-                            os.remove(path_to_del)
+                            if os.path.exists(path_to_del):
+                                os.remove(path_to_del)
+                                success_count += 1
                         except Exception as e:
                             st.error(f"删除失败 {f_del}: {e}")
-                    st.success(f"已删除 {len(files_to_delete)} 个文件")
+                            fail_count += 1                
+                        prog_bar.progress((i + 1) / len(files_to_delete))
+                    # 结果反馈
+                    if fail_count == 0:
+                        st.success(f"✅ 已成功删除 {success_count} 个文件！")
+                    else:
+                        st.warning(f"⚠️ 删除完成：成功 {success_count} 个，失败 {fail_count} 个。")
+                    
+                    # 清空选中状态并刷新
+                    st.session_state["files_to_delete_key"] = []
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.warning("请先选择要删除的文件")
+                    st.warning("⚠️ 请先选择要删除的文件，或者点击'全选'按钮。")
+                    
         col_d1, col_d2 = st.columns(2)
         
-        # 2. 批量打包下载功能
+        # download all crop files as zip
         with col_d1:
-            zip_path = os.path.join(TEMP_DIR, "cropped_files.zip")
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for f in cropped_files:
-                    zipf.write(os.path.join(DIRS["crop"], f), f)
+            zip_filename = "all_cropped_results.zip"
+            zip_save_path = os.path.join(TEMP_DIR, zip_filename)
             
-            with open(zip_path, "rb") as f:
-                st.download_button(
-                    label="📦 打包下载所有文件 (.zip)",
-                    data=f,
-                    file_name="cropped_files.zip",
-                    mime="application/zip",
-                    type="primary"
-                )
+            # 2. 确定源文件夹 (即存放裁剪后 PDF 的目录)
+            source_dir = DIRS["crop"] # 对应 "temp_workspace/2_cropped"
+            
+            # 3. 扫描该文件夹下的所有文件
+            if os.path.exists(source_dir):
+                files_to_zip = [f for f in os.listdir(source_dir) if f.endswith(".pdf")]
+                
+                if files_to_zip:
+                    # 4. 执行压缩
+                    # zipfile.ZIP_DEFLATED 需要 zlib 库，通常 Python 自带。如果报错可改为 zipfile.ZIP_STORED
+                    with zipfile.ZipFile(zip_save_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for f_name in files_to_zip:
+                            file_full_path = os.path.join(source_dir, f_name)
+                            zipf.write(file_full_path, arcname=f_name)
+                    
+                    # 5. 生成下载按钮
+                    with open(zip_save_path, "rb") as f:
+                        st.download_button(
+                            label=f"📦 批量下载所有裁剪文件 ({len(files_to_zip)}个)",
+                            data=f,
+                            file_name=zip_filename,
+                            mime="application/zip",
+                            type="primary",
+                            key="batch_download_btn"
+                        )
+                else:
+                    st.info("📂 裁剪目录为空，暂无可下载文件。")
+            else:
+                st.error("❌ 找不到裁剪目录。")
         
         # 3. 单文件下载功能
         with col_d2:
