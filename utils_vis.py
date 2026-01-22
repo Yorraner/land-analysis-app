@@ -103,8 +103,7 @@ def plot_heatmap(X_norm, regions, feature_names=None):
 
 def plot_category_radar_chart(category_feature_attention_expert):
     """
-    绘制类别特征注意力雷达图 (适配 Streamlit)
-    Input: DataFrame (行=特征, 列=类别)
+    绘制类别特征注意力雷达图 (已增加特征名清洗功能)
     """
     my_font = get_chinese_font()
     n_clusters = category_feature_attention_expert.shape[1]
@@ -141,6 +140,18 @@ def plot_category_radar_chart(category_feature_attention_expert):
 
         if not features: continue
 
+        # === 核心修改：清洗特征名称 ===
+        # 将 "landuse:农用地" 或 "final_matrix:final_matrix:农用地" -> "农用地"
+        clean_features = []
+        for feat in features:
+            if ":" in str(feat):
+                # split(":")[-1] 会取最后一个冒号后面的内容
+                # 例如 "A:B:C" -> "C"
+                clean_name = str(feat).split(":")[-1]
+            else:
+                clean_name = str(feat)
+            clean_features.append(clean_name)
+        # ==========================
         # 数据闭合
         angles = np.linspace(0, 2*np.pi, len(features), endpoint=False).tolist()
         values += values[:1]
@@ -150,7 +161,10 @@ def plot_category_radar_chart(category_feature_attention_expert):
         ax.fill(angles, values, alpha=0.25, color=colors[k])
 
         ax.set_xticks(angles[:-1])
-        feature_labels = [f'{feat[:10]}..' if len(feat)>10 else feat for feat in features]
+        
+        # 使用 clean_features 进行标签展示，并做长度截断防止重叠
+        feature_labels = [f'{feat[:10]}..' if len(feat)>10 else feat for feat in clean_features]
+        
         ax.set_xticklabels(feature_labels, fontproperties=my_font, fontsize=9)
 
         if values:
@@ -158,7 +172,7 @@ def plot_category_radar_chart(category_feature_attention_expert):
             ax.set_yticks(np.linspace(0, max(values), 4))
         
         ax.grid(True, alpha=0.3)
-        ax.set_title(f'类别 {k+1} 特征画像', fontproperties=my_font, fontsize=12, pad=15)
+        ax.set_title(f'类别 {k+1} 特征', fontproperties=my_font, fontsize=12, pad=15)
 
     # 隐藏多余子图
     for k in range(n_clusters, n_rows * n_cols):
@@ -167,7 +181,7 @@ def plot_category_radar_chart(category_feature_attention_expert):
         axes[row, col].set_visible(False)
 
     plt.tight_layout()
-    return fig  # 返回对象供 st.pyplot 使用
+    return fig
 
 # === 2. 修改后的条形图函数 ===
 def plot_horizontal_bars_from_df(df_result, my_font=None):

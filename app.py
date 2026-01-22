@@ -18,35 +18,64 @@ from algorithm import clustering_kmeans_with_entropy_expert,build_weight_vector
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
 
+
 def check_password():
     """Returns `True` if the user had a correct password."""
+    
     def password_entered():
         """Checks whether a password entered by the user is correct."""
         if st.session_state["username"] in ["admin", "user"] and st.session_state["password"] == "123456":
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
-    if "password_correct" not in st.session_state:
-            set_bg_hack("./imgs/bg1.png")
-            
-            st.header("全域土地综合整治地区类型分类平台系统")
-            st.text_input("用户名", key="username")
-            st.text_input("密码", type="password", key="password")
-            st.button("登录", on_click=password_entered)
-            return False
+    # === 核心修改：定义登录界面的布局函数 ===
+    def show_login_form(error_msg=None):
+        # 1. 设置背景图
+        set_bg_hack("./imgs/bg1.png")
+        
+        # 2. 增加垂直方向的空白，把登录框往下挤 (Vertical Center)
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True) 
 
-        # === 情况2：密码错误，未登录 ===
-    elif not st.session_state["password_correct"]:
-            set_bg_hack("./imgs/bg1.png")
-            st.header("全域土地综合整治地区类型分类平台的系统")
+        # 3. 使用列布局实现水平居中 (Horizontal Center)
+        col1, col2, col3 = st.columns([1, 2, 1]) 
+        with col2:
+            st.markdown("""
+                <style>
+                div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
+                    background-color: rgba(255, 255, 255, 0.9); /* 白色背景，90%不透明 */
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                }
+                </style>
+                """, unsafe_allow_html=True)
+            st.markdown(
+        """
+        <div style='text-align: center; margin-bottom: 20px;'>
+            <div style='font-size: 26px; font-weight: bold; color: #333;'>全域土地综合整治</div>
+            <div style='font-size: 26px; font-weight: bold; color: #333;'>地区类型分类平台</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
             st.text_input("用户名", key="username")
             st.text_input("密码", type="password", key="password")
-            st.button("登录", on_click=password_entered)
-            st.error("😕 用户名或密码错误")
-            return False
+            st.button("登录", on_click=password_entered, use_container_width=True) # 按钮填满宽度
+            
+            if error_msg:
+                st.error(error_msg)
+
+    # === 逻辑判断 ===
+    if "password_correct" not in st.session_state:
+        show_login_form()
+        return False
+    elif not st.session_state["password_correct"]:
+        show_login_form(error_msg="😕 用户名或密码错误")
+        return False
+        
     else:
-            return True
+        return True
 
 if not check_password():
     st.stop()
@@ -178,14 +207,10 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
 # ========================================================
 if step == "1. 文档上传与裁剪":
     st.header("📄 步骤 1: PDF 文档处理")
-    
     tab1, tab2 = st.tabs(["🚀 批量自动裁剪", "🛠️ 手动裁剪修复"])
-    
-    # --- Tab 1: 自动裁剪 ---
     with tab1:
         st.markdown("上传原始文档，系统将根据提取模式自动裁剪出关键页面。")
         uploaded_files = st.file_uploader("上传 PDF 文件", type=["pdf"], accept_multiple_files=True, key="auto_uploader")
-        
         col1, col2 = st.columns([1, 1])
         with col1:
             # === 修改点：基于业务场景的选择 ===
@@ -196,7 +221,6 @@ if step == "1. 文档上传与裁剪":
             # === 核心逻辑：根据选择自动预设参数 ===
             default_kw = ""
             algo_type = "TOC" # 默认目录匹配
-            
             if "自然资源禀赋" in crop_task_type:
                 default_kw = r"(土地利用.*表|表.*土地利用.*表)"
                 algo_type = "Content" # 全文扫描
@@ -210,7 +234,6 @@ if step == "1. 文档上传与裁剪":
                 default_kw = "空间布局优化"
             # 允许用户微调关键词
             keyword = st.text_input("提取关键词 (支持正则)", value=default_kw)
-            
             # 显示当前使用的算法提示
             if algo_type == "Content" or crop_task_type == "自定义全文搜索":
                 st.caption("ℹ️ 模式：**全文关键词扫描** (适合跨页大表)")
@@ -604,19 +627,15 @@ elif step == "3. 数据解析":
                 # 允许 X_norm 不存在（兼容旧数据），但必须有 X
                 if isinstance(data_dict, dict) and required_keys.issubset(data_dict.keys()):
                     st.success("✅ 检测到合法的特征字典结构！")
-                    
-                    # 获取维度信息
                     regions = data_dict['regions']
                     feats = data_dict['features']
                     
                     st.write(f"📊 数据维度: {len(regions)} 个地区 × {len(feats)} 个特征")
-                    
-                    # 3. 选择要恢复的数据版本
+                    # 此处需要进行更改需那种 norm
                     # 既然已经有 X_norm，我们允许用户选择是否直接使用它
                     use_norm_data = st.checkbox("使用已归一化的数据 (X_norm)", value=True, 
                                               help="如果选中，将使用 pkl 中的 X_norm 直接生成最终矩阵；否则使用 X 重新生成。")
-                    matrix_data = data_dict['X_norm'] if (use_norm_data and 'X_norm' in data_dict) else data_dict['X']
-                    
+                    matrix_data = preprocess_X(data_dict['X'], eps=1e-8, use_log=True) if use_norm_data  else data_dict['X']
                     # 4. 重构 DataFrame
                     # 确保矩阵形状匹配
                     if len(regions) == matrix_data.shape[0] and len(feats) == matrix_data.shape[1]:
@@ -629,7 +648,7 @@ elif step == "3. 数据解析":
                             if st.button("🚀 恢复为最终矩阵", type="primary"):
                                 # === 核心操作：直接生成 Step 4 的产出文件 ===
                                 # 保存为 parsed_final_matrix.csv，这样 Step 5 可以直接读取
-                                save_path_final = os.path.join(DIRS["result"], "parsed_final_matrix.csv") # 这个名称是否需要更改，这是原始操作得到的结果
+                                save_path_final = os.path.join(DIRS["result"], "parsed_origion_final_matrix.csv") # 这个名称是否需要更改，这是原始操作得到的结果
                                 df_reconstructed.to_csv(save_path_final, encoding='utf-8-sig')
                                 
                                 # 同时保存一份 raw 用于备份 (如果有 X 的话)
@@ -854,7 +873,7 @@ elif step == "5. 数据分类与导出":
                 with c1:
                     weight_settings["自然资源禀赋"] = st.number_input("1. 自然资源", value=5.0, step=0.1)
                 with c2:
-                    weight_settings["自然资源-布尔项"] = st.number_input("   ↳ 林地/布尔", value=1.0, step=0.1)
+                    weight_settings["自然资源-布尔项"] = st.number_input("  ↳ 林地/布尔", value=1.0, step=0.1)
                 weight_settings["潜力项数据"] = st.number_input("2. 潜力数据", value=1.0, step=0.1)
                 c3, c4 = st.columns(2)
                 with c3: weight_settings["空间布局"] = st.number_input("3. 空间布局", value=0.1, step=0.05)
@@ -873,7 +892,8 @@ elif step == "5. 数据分类与导出":
                             df_matrix.values, 
                             df_matrix.index.tolist(), 
                             expert_weights=weights_vec, 
-                            n_clusters=n_clusters
+                            n_clusters=n_clusters,
+                            path=DIRS["final"]
                         )
 
                 st.success("✅ 聚类完成！")
@@ -918,6 +938,9 @@ elif step == "5. 数据分类与导出":
                         try:
                             fig_radar = plot_category_radar_chart(category_feature_attention)
                             st.pyplot(fig_radar)
+                            save_radar_path = os.path.join(DIRS["final"], f"{n_clusters}_category_feature_radar.png")
+                            fig_radar.savefig(save_radar_path, dpi=300, bbox_inches='tight')
+                            
                         except Exception as e_plot:
                             st.error(f"雷达图绘制失败: {e_plot}")
 
@@ -929,10 +952,15 @@ elif step == "5. 数据分类与导出":
                     # 调用修改后的条形图函数
                     fig_bars = plot_horizontal_bars_from_df(df_result)
                     st.pyplot(fig_bars)
+                    fig_bars_path = os.path.join(DIRS["final"], f"{n_clusters}_region_membership_bars.png")
+                    fig_bars.savefig(fig_bars_path, dpi=300, bbox_inches='tight')
+                    
+                st.success(f"🎉 所有分析结果（表格与图表）已自动保存至: `{DIRS['final']}`")
             except Exception as e:
                 st.error(f"分析过程发生错误: {str(e)}")
                 # 打印详细报错方便调试
                 import traceback
                 st.text(traceback.format_exc())      
     # === 展示文件管理 ===
-    render_file_manager(DIRS["final"], title="最终分类结果", file_ext=".csv", key_prefix="step5")
+    render_file_manager(DIRS["final"], title="最终成果文件 (Step 5 Outputs)", file_ext=".png", key_prefix="step5_img")
+    render_file_manager(DIRS["final"], title="最终成果数据 (Step 5 Data)", file_ext=".xlsx", key_prefix="step5_data")

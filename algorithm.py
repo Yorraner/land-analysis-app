@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from os.path import join as opj
 from sklearn.cluster import KMeans
 
 
@@ -192,7 +193,7 @@ def weighted_kmeans_prob(X, weights, n_clusters=3, random_state=42):
 
 
 def clustering_kmeans_with_entropy_expert(X, region,\
-    expert_weights=None, n_clusters=3, top_k=3):
+    expert_weights=None, n_clusters=3, top_k=3,path=None):
     """
     主客观结合聚类 (K-Means + 熵权 + 专家权重)
     ----------
@@ -259,7 +260,8 @@ def clustering_kmeans_with_entropy_expert(X, region,\
         print(f"类别 {i} 作为Top1的地区数: {count} / {ratio:.1f}%")
         print(f"地区: {regions_in_cluster}\n")
     
-    save_file = f"./clustering_entropy_kmeans_{n_clusters}.xlsx"
+    name = f"clustering_entropy_kmeans_{n_clusters}.xlsx"
+    save_file = opj(path, name)
     df_result.to_excel(save_file)
     print(f"结果已保存至: {save_file}")
 
