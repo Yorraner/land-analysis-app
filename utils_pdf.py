@@ -7,47 +7,89 @@ import fitz
 import difflib
 
 
-
-def compute_page_offset(doc, search_range=30):
+def calculate_global_offset(doc, toc_dict):
     """
-    计算 PDF 物理页码与逻辑页码的偏移量。
-    策略：扫描前 N 页，寻找页面底部标有 "- 1 -" 或 "1" 的页面。
-    该页面的物理索引 (index) 即为偏移量 offset。
-    例如：第 5 页印着 "1"，说明 offset = 4 (因为 index 是 4)。
+    通过对比【目录中的页码】和【正文中标题实际出现的页码】，计算全局偏移量。
+    已增加：防目录误判逻辑（避免匹配到目录页本身）。
     """
-    offset = 0
-    try:
-        # 匹配页面底部常见的页码格式： "1", "- 1 -", "Page 1"
-        # 注意：很多文档第一页正文不标页码，所以我们找 "1" 或者 "2" 倒推
-        page_num_patterns = [
-            r"^\s*[-—]?\s*1\s*[-—]?\s*$",  # - 1 -
-            r"^\s*1\s*$",                  # 1
-            r"第\s*1\s*页"                 # 第 1 页
-        ]
-        
-        # 扫描前 search_range 页
-        for i in range(min(search_range, doc.page_count)):
-            page = doc[i]
-            # 获取页面文本，限制只看底部 10% 的区域（页脚通常在这里）
-            rect = page.rect
-            footer_rect = fitz.Rect(0, rect.height * 0.9, rect.width, rect.height)
-            text = page.get_text("text", clip=footer_rect).strip()
-            
-            # 检查是否匹配“1”
-            for pat in page_num_patterns:
-                if re.search(pat, text):
-                    print(f"🔍 在物理第 {i+1} 页底端发现页码 '1'，计算偏移量 offset = {i}")
-                    return i
-        
-        # 备选策略：如果找不到 "1"，尝试找 "2" 或者是 "目录" 结束后的下一页
-        # 这里为了稳健，如果找不到，尝试通过目录的第一条目倒推
-        # 但目前保持 0 是最安全的默认值（即假设封面就是第1页）
-        print("⚠️ 未能在页脚自动检测到起始页码 '1'，默认 offset = 0")
-        return 0
+    if not toc_dict: return 0
+    
+    print("🔄 正在利用目录内容进行偏移量校准 (Anchor Calibration)...")
 
-    except Exception as e:
-        print(f"计算偏移量出错: {e}")
-        return 0
+    # 1. 选取锚点
+    valid_entries = []
+    for title, pages in toc_dict.items():
+        start_page = pages[0]
+        if start_page >= 1:
+            valid_entries.append((title, start_page))
+    
+    valid_entries.sort(key=lambda x: x[1])
+    anchors = valid_entries[:3] # 取前3个
+
+    if not anchors: return 0
+
+    # 2. 遍历锚点
+    for title, logic_page in anchors:
+        # 扩大搜索范围，但跳过极前部（防止匹配到封面/摘要）
+        # 假设 Offset 可能很大（比如前言有15页），所以往后多搜一点
+        search_start = max(0, logic_page - 5) 
+        search_end = min(doc.page_count, logic_page + 30)
+
+        # 清洗标题
+        clean_target = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", "", title)
+        if len(clean_target) < 2: continue
+
+        for i in range(search_start, search_end):
+            try:
+                page = doc[i]
+                
+                # === 核心修改 1: 获取更详细的文本块 ===
+                # 我们不仅要看 text，还要看这一行长什么样
+                # 获取页面上部 40%
+                header_rect = fitz.Rect(0, 0, page.rect.width, page.rect.height * 0.4)
+                
+                # 获取 text 及其布局位置，按行分割
+                page_text = page.get_text("text", clip=header_rect)
+                lines = page_text.split('\n')
+                
+                is_real_header = False
+                
+                for line in lines:
+                    clean_line = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", "", line)
+                    
+                    # 检查是否包含标题
+                    if clean_target in clean_line:
+                        # === 核心修改 2: 排除目录特征 ===
+                        # 特征 A: 后面紧跟数字 (e.g., "第一章... 1")
+                        # 特征 B: 包含大量虚线/点 (e.g., "......")
+                        
+                        # 检查原始 line 是否以数字结尾 (允许少量空格)
+                        if re.search(r'[\.\…\s]+\d+\s*$', line.strip()):
+                            # print(f"   [跳过] 第 {i+1} 页疑似目录项: {line.strip()}")
+                            continue 
+                        # 特征 C: 检查该页是不是明确写着“目录”
+                        # (如果页面最顶端写着“目录”，哪怕这行没有数字也跳过)
+                        if "目录" in page_text[:50] and i < 20: 
+                             continue
+                        # 通过所有检查，认为是正文标题
+                        is_real_header = True
+                        break
+                if is_real_header:
+                    # 计算偏移量
+                    offset = i - (logic_page - 1)
+                    
+                    # 再次校验：Offset 通常 >= 0
+                    if offset >= 0:
+                        print(f"✅ 校准成功！锚点: '{title}'")
+                        print(f"   - 目录页码: {logic_page}")
+                        print(f"   - 物理索引: {i} (第 {i+1} 页)")
+                        print(f"   - 修正 Offset: {offset}")
+                        return offset
+            except:
+                continue
+
+    print("⚠️ 未能通过内容校准偏移量，默认 Offset = 0")
+    return 0
 
 
 # ========================================================
@@ -124,8 +166,6 @@ def parse_toc_to_dict(doc, max_scan_pages=20):
             # 最后一项，结束页为文档总页数
             end_p = doc.page_count
 
-        # 存入字典
-        # 注意：如果有重名标题（极少见），后面会覆盖前面，或者可以存成列表
         toc_dict[title] = [start_p, end_p]
     # print("current file toc_dict:")
     # print(toc_dict)
@@ -134,45 +174,91 @@ def parse_toc_to_dict(doc, max_scan_pages=20):
 # ========================================================
 # 匹配逻辑：在字典中查表
 # ========================================================
-def match_section_from_dict(toc_dict, keyword, threshold=0.4):
+def match_section_from_dict(toc_dict, keyword, threshold=0.4, min_pages=1):
     """
-    在目录字典中寻找最匹配 keyword 的条目
-    返回: (start_page, end_page, matched_title)
+    在目录字典中寻找最匹配 keyword 的条目 (增强版)
+    改进点：
+    1. 引入"标题纯度"：优先匹配"字数更少、更精准"的标题，解决父子标题包含问题。
+    2. 引入"页数过滤"：过滤掉页数为0或过短的无效章节。
     """
     if not toc_dict:
         return None, None, None
 
-    best_score = 0
-    best_key = None
+    candidates = []
+    clean_keyword = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", "", keyword)
+    if not clean_keyword: clean_keyword = keyword
 
-    for title in toc_dict.keys():
-        # 1. 字符覆盖率 (解决 "存在问题" vs "存在的主要问题")
-        keyword_chars = set(keyword)
-        title_chars = set(title)
-        common_chars = keyword_chars.intersection(title_chars)
-        coverage = len(common_chars) / len(keyword_chars) if keyword_chars else 0
+    for title, pages in toc_dict.items():
+        start_page, end_page = pages
+        page_len = end_page - start_page
         
-        # 2. 序列相似度 (difflib)
-        seq_score = difflib.SequenceMatcher(None, keyword, title).ratio()
-        
-        # 3. 综合得分
-        # 如果关键词包含在标题里，给予极高权重
-        if keyword in title:
-            final_score = 1.0
+        # === 过滤条件 1: 页数检查 ===
+        if page_len < min_pages:
+            continue
+
+        # 清洗标题 (去掉 "六、", "(一)", "1." 等序号)
+        # 这一步很重要，否则 "(三) 子项目" 的纯度会比 "子项目" 低
+        clean_title_full = re.sub(r"^[第\d一二三四五六七八九十\(\)（）\.、\s]+", "", title)
+        # 再次清洗，去掉中间空格
+        clean_title = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", "", clean_title_full)
+
+        # === 评分逻辑 ===
+        # 1. 基础相似度 (Fuzzy Match)
+        if clean_keyword in clean_title:
+            base_score = 1.0
         else:
-            final_score = max(coverage, seq_score)
+            base_score = difflib.SequenceMatcher(None, clean_keyword, clean_title).ratio()
 
-        if final_score > best_score:
-            best_score = final_score
-            best_key = title
+        # 2. 标题纯度 (Purity) - 解决父子包含问题的核心！
+        # 纯度 = 关键词长度 / 标题长度
+        # 例子：
+        # 关键词="子项目" (3字)
+        # 标题A="建设内容与子项目" (8字) -> 纯度 0.375
+        # 标题B="子项目" (3字) -> 纯度 1.0
+        # 结果：标题B胜出
+        if len(clean_title) > 0:
+            purity_score = len(clean_keyword) / len(clean_title)
+            # 防止关键词比标题长导致的 >1
+            purity_score = min(1.0, purity_score)
+        else:
+            purity_score = 0
 
-    print(f"🔍 搜索关键词: '{keyword}' | 最佳匹配: '{best_key}' (得分: {best_score:.2f})")
+        # 3. 综合得分 (加权)
+        # 相似度占 60%，纯度占 40% (纯度权重越高，越倾向于短标题)
+        final_score = base_score * 0.6 + purity_score * 0.4
+        
+        # 如果包含关键词，给予额外奖励，确保它比单纯的模糊匹配高
+        if clean_keyword in clean_title:
+            final_score += 0.2
 
-    if best_key and best_score >= threshold:
-        pages = toc_dict[best_key]
-        return pages[0], pages[1], best_key
-    else:
-        return None, None, None
+        if final_score >= threshold:
+            candidates.append({
+                "title": title,
+                "start": start_page,
+                "end": end_page,
+                "score": final_score,
+                "purity": purity_score,
+                "len": page_len
+            })
+
+    # === 排序选优 ===
+    if candidates:
+        # 按分数降序排列
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        
+        best = candidates[0]
+        print(f"🔍 搜索: '{keyword}'")
+        print(f"   🏆 最佳命中: '{best['title']}' (分: {best['score']:.2f}, 纯度: {best['purity']:.2f}, 页数: {best['len']})")
+        
+        # 打印其他候选（调试用）
+        if len(candidates) > 1:
+            second = candidates[1]
+            print(f"   🥈 次选匹配: '{second['title']}' (分: {second['score']:.2f})")
+
+        return best["start"], best["end"], best["title"]
+
+    return None, None, None
+
 # ========================================================
 # 裁剪函数
 # ========================================================
@@ -181,18 +267,16 @@ def extract_section_to_pdf(pdf_path, output_path, section_keyword="问题"):
     out_doc = None
     try:
         src_doc = fitz.open(pdf_path)
-        # 1. 计算偏移量 (Offset)
-        # 逻辑页码 (目录上的 1) + Offset = 物理索引 (FitZ 的 4)
-        offset = compute_page_offset(src_doc)
-        print(f"📄 文档总页数: {src_doc.page_count}, 计算偏移量 Offset = {offset}")
-        
+       
         # 2. 解析目录
         print("正在解析目录结构...")
         toc_dict = parse_toc_to_dict(src_doc)
         
+        offset = calculate_global_offset(src_doc, toc_dict)
+        print(f"📄 文档总页数: {src_doc.page_count}, 计算偏移量 Offset = {offset}")
+        
         if not toc_dict:
             print("⚠️ 文本目录解析失败，尝试使用书签...")
-            # (这里省略了书签逻辑，如果需要可以加上)
             return False
 
         # 3. 匹配区间 (得到的是目录上的逻辑页码，例如 5 -> 8)
@@ -262,6 +346,7 @@ def open_pdf_auto_repair(pdf_path):
         except Exception:
             return None
 
+'''
 def compute_page_offset(pdf_path, max_pages_to_check=20):
     """计算页码偏移量"""
     doc = None
@@ -290,6 +375,7 @@ def compute_page_offset(pdf_path, max_pages_to_check=20):
     finally:
         if doc: doc.close()
     return 0
+'''
 
 '''
 def find_section_pages(pdf_path, section_title="问题"):
