@@ -149,8 +149,13 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
     files.sort(key=lambda x: os.path.getmtime(os.path.join(dir_path, x)), reverse=True) # 按时间倒序
 
     if files:
-        # 1. file table display
-        df_files = pd.DataFrame(files, columns=["文件名"])
+        # 1. file table displayview
+        view_files = files
+        if  key_prefix =="step3":
+            view_files = [i for i in files if i.startswith('parsed') and not i.endswith("matrix.csv")]
+        elif  key_prefix =="step4":
+            view_files = [i for i in files if i.startswith('fusion')]
+        df_files = pd.DataFrame(view_files, columns=["文件名"])
         st.dataframe(df_files, width="stretch", height=150)
         
         # 2. file delete
@@ -167,7 +172,12 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
         # 3. preview & single download
         c1, c2 = st.columns([2, 1])
         with c1:
-            sel_file = st.selectbox("选择文件预览:", files, key=f"{key_prefix}_sel")
+            select_files = files
+            if  key_prefix =="step3":
+                select_files = [i for i in files if i.startswith('parsed') and not i.endswith("matrix.csv")]
+            elif  key_prefix =="step4":
+                select_files = [i for i in files if i.startswith('fusion')]
+            sel_file = st.selectbox("选择文件预览:", select_files, key=f"{key_prefix}_sel")
             if sel_file:
                 file_path = os.path.join(dir_path, sel_file)
                 if file_ext == ".csv":
@@ -577,7 +587,7 @@ elif step == "2. 大模型数据获取":
     
     target_suffix = TASK_DICT.get(task_type)
     
-    # 2. 扫描并过滤文件
+    # 2. scan crop directory for relevant files
     if not os.path.exists(DIRS["crop"]):
         st.warning("⚠️ 裁剪目录不存在。")
     else:
@@ -590,7 +600,7 @@ elif step == "2. 大模型数据获取":
             st.info("请回到 **步骤 1**，选择对应的数据类型并执行裁剪。")
         else:
             st.subheader(f"1️⃣ 待处理文件列表 ({len(target_files)} 个)")
-            # 预览文件信息
+            # preview file info
             file_info_list = []
             for f in target_files:
                 info = extract_info(f)
@@ -605,7 +615,7 @@ elif step == "2. 大模型数据获取":
             st.divider()
             st.subheader("2️⃣ 开始提取")
             
-            if st.button("🚀 发送至扣子(Coze)进行分析", type="primary"):
+            if st.button("🚀 大模型解析，数据提取", type="primary"):
                 results = []
                 progress_bar = st.progress(0)
                 log_container = st.container()
@@ -668,13 +678,13 @@ elif step == "2. 大模型数据获取":
                     st.dataframe(df_result.head())
             
     # 文件管理
-    render_file_manager(DIRS["raw"], title="已获取的原始数据文件", file_ext=".csv", key_prefix="step2")
+    render_file_manager(DIRS["raw"], title="大模型获取的数据", file_ext=".csv", key_prefix="step2")
     
 # # ========================================================
 # # 3. 数据解析
 # # ========================================================
 elif step == "3. 数据解析":
-    st.header("🧹 步骤 3: 结构化解析")
+    st.header("🧹 步骤 3: 结构化数据解析")
     # === 使用 Tabs 分流：正常解析 vs 手动上传 ===
     tab1, tab2,tab3 = st.tabs(["⚙️ 解析原始数据", 
                                "📤 上传外部数据 (补充缺失项)",
@@ -684,7 +694,7 @@ elif step == "3. 数据解析":
     with tab1:
         col1, col2 = st.columns([1, 1])
         with col1:
-            parse_type = st.selectbox("选择解析模式", list(TASK_DICT.keys()))
+            parse_type = st.selectbox("选择解析数据类型", list(TASK_DICT.keys()))
         task_suffix = TASK_DICT[parse_type]
         raw_filename = f"coze_raw_output_{task_suffix}.csv"
         raw_file = os.path.join(DIRS["raw"], raw_filename)
@@ -845,13 +855,11 @@ elif step == "3. 数据解析":
 # # 4. 数据融合
 # # ========================================================
 elif step == "4. 数据融合&展示":
-    st.header("🔗 步骤 4: 多源数据融合 (N×d 矩阵)及可视化展示")
-    # 扫描已解析的 CSV
-    csvs = [f for f in os.listdir(DIRS["result"]) if f.startswith("parsed_")]
-    # 结果路径
-    norm_res_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
-    raw_res_path = os.path.join(DIRS["result"], "parsed_raw_matrix.csv")
-    
+    st.header("🔗 步骤 4: 多源数据融合及可视化展示")
+    # scan parser CSV files
+    csvs = [f for f in os.listdir(DIRS["result"]) if not f.startswith("fusion")]
+    norm_res_path = ""
+    raw_res_path = ""
     if not csvs:
         st.warning("⚠️ 没有找到解析后的数据文件，请先完成步骤 3。")
     else:
@@ -866,7 +874,7 @@ elif step == "4. 数据融合&展示":
         # 1. 定义核心任务后缀顺序
         strict_order_suffixes = ["landuse", "potential", "spatial", "issue", "project"]
         
-        # 2. 构建默认选中列表 (Default Selection) - 仅包含严格匹配的核心文件
+        # 2. Default Selection - only include those that exist
         default_files = []
         for suffix in strict_order_suffixes:
             target_name = f"parsed_{suffix}.csv"
@@ -891,6 +899,15 @@ elif step == "4. 数据融合&展示":
             use_log = st.checkbox("☑️ 启用对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
         with c2:
             start_btn = st.button("开始融合与归一化", type="primary")
+        
+        # output paths
+        suffix = "_log" if use_log else ""
+        norm_filename = f"fusion_final_matrix{suffix}.csv"
+        raw_filename = f"fusion_raw_matrix.csv"
+        
+        norm_res_path = os.path.join(DIRS["result"], norm_filename)
+        raw_res_path = os.path.join(DIRS["result"], raw_filename)
+            
         if  start_btn:
             if not selected:
                 st.error("请至少选择一个文件。")
@@ -918,6 +935,10 @@ elif step == "4. 数据融合&展示":
                 if len(regions) > 0:
                     st.success(f"✅ 融合成功！共 {len(regions)} 个地区，特征维度: {X_final.shape[1]}")
                     try:
+                        raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
+                        raw_df.index.name = "地区"
+                        raw_df.to_csv(raw_res_path, encoding='utf-8-sig', index_label="地区")
+                        
                         st.info(f"正在处理... (Log变换: {use_log})")
                         X_norm = preprocess_X(X_final, use_log=use_log)
                         
@@ -925,71 +946,95 @@ elif step == "4. 数据融合&展示":
                         final_df.index.name = "地区"
                         final_df.to_csv(norm_res_path, encoding='utf-8-sig', index_label="地区")
                         
-                        raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
-                        raw_df.index.name = "地区"
-                        raw_df.to_csv(raw_res_path, encoding='utf-8-sig', index_label="地区")
+
 
                         st.rerun()
                     except Exception as e:
                             st.error(f"归一化失败: {e}")
                 else:
                         st.error("融合失败：所选数据表之间没有公共地区。")
+    #                   
     if os.path.exists(norm_res_path):
         st.divider()
-        st.subheader("🎨 多维度可视化看板")
-        # 1. 准备可视化选项
-        vis_options = {"🏆 最终融合矩阵 (归一化)": norm_res_path}
-        # 自动扫描并添加分项数据
-        for f in csvs: 
-            vis_options[f"📄 分项: {f}"] = os.path.join(DIRS["result"], f)
-            
-        # 2. 用户选择
-        c_vis1, c_vis2 = st.columns([1, 2])
-        with c_vis1:
-            selected_vis = st.selectbox("选择要展示的热力图数据:", list(vis_options.keys()))
+        st.subheader("🎨 多维度可视化")
+
+        # 1. 准备选项：自动扫描 result 目录
+        vis_options = {}
         
-        # 3. 加载与处理
-        target_path = vis_options[selected_vis]
+        # 找最终矩阵 (根据你的文件名特征)
+        final_files = [f for f in os.listdir(DIRS["result"]) if "fusion_final" in f]
+        for f in final_files:
+            vis_options[f"🏆 最终融合矩阵 ({f})"] = os.path.join(DIRS["result"], f)
+        
+        # 找其他分项数据
+        sub_files = [f for f in os.listdir(DIRS["result"]) if "fusion_final" not in f and f.endswith(".csv")]
+        for f in sub_files:
+            vis_options[f"📄 分项数据: {f}"] = os.path.join(DIRS["result"], f)
+
+        # 2. 用户选择
+        c_vis1, c_vis2 = st.columns([2, 1])
+        with c_vis1:
+            selected_vis_key = st.selectbox("选择要展示的数据:", list(vis_options.keys()))
+        
+        target_path = vis_options[selected_vis_key]
+        
+        # 3. 绘图逻辑
         try:
-            if "最终融合" in selected_vis:
-                df_vis = pd.read_csv(target_path, index_col=0)
-                do_norm = False
+            df_vis = pd.read_csv(target_path, index_col=0)
+            # 仅保留数值列
+            df_vis = df_vis.select_dtypes(include=['number'])
+
+            if df_vis.empty:
+                st.warning("数据为空，无法绘图")
             else:
-                df_vis = pd.read_csv(target_path)
-                if "地区" in df_vis.columns: df_vis = df_vis.set_index("地区")
-                # 筛选数值列
-                else: df_vis = df_vis.set_index(df_vis.columns[0])
-                df_vis = df_vis.select_dtypes(include=['number'])
-                
-                with c_vis2:
-                    do_norm = st.checkbox(
-                        "应用 Log1p + Min-Max 归一化", 
-                        value=True, 
-                        key=f"norm_{selected_vis}",
-                        help="防止长尾数据导致热力图全黑。Log1p用于拉近数量级差距。"
-                    )
-                if not df_vis.empty:
-                    if do_norm:
-                        # 1. Log1p
-                        df_log = np.log1p(df_vis)
-                        # 2. Min-Max
-                        range_val = df_log.max() - df_log.min()
-                        # 防止除0
-                        df_norm = pd.DataFrame(
-                            np.where(range_val == 0, 0, (df_log - df_log.min()) / range_val),
-                            index=df_vis.index, columns=df_vis.columns
-                        ).fillna(0)
-                        
-                        # 绘图：传入特征名 (分项数据列数少，可以显示名字)
-                        fig = plot_heatmap(df_norm.values, df_norm.index.tolist(), feature_names=df_norm.columns.tolist())
-                    else:
-                        # 不归一化直接画 (可能会很难看)
-                        fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
+                # === 核心判断逻辑 ===
+                is_final_result = "最终融合" in selected_vis_key
+
+                if is_final_result:
+                    # Case A: 最终结果 -> 直接读取，原样绘制
+                    # 你的预处理已经保证了它在 0-1 之间且没有 0 值
+                    with c_vis2:
+                        st.success("✅ 检测到预处理后的融合矩阵，已直接展示。")
+                        # 这里不需要任何 Checkbox
+                    
+                    # 直接画图 (df_vis 已经是完美状态)
+                    fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
                     st.pyplot(fig)
+
                 else:
-                    st.warning("该文件无数值数据，无法绘制热力图。")
+                    # Case B: 分项原始数据 -> 仍然需要归一化选项
+                    # 因为分项文件(如 _landuse.csv) 里存的可能还是 336.64 这种原始数值
+                    with c_vis2:
+                        do_norm = st.checkbox(
+                            "应用可视化增强 (Log + Norm)", 
+                            value=True, 
+                            key=f"norm_cb_{selected_vis_key}",
+                            help="分项数据通常为原始物理量，建议开启归一化以看清分布。"
+                        )
+                    
+                    if do_norm:
+                        # 这里做临时的可视化归一化 (不影响原文件)
+                        # 1. Log
+                        df_proc = np.log1p(np.maximum(df_vis, 0))
+                        # 2. Min-Max
+                        range_val = df_proc.max() - df_proc.min()
+                        df_plot = df_proc.copy()
+                        for col in df_proc.columns:
+                            if range_val[col] > 1e-8:
+                                df_plot[col] = (df_proc[col] - df_proc[col].min()) / range_val[col]
+                            else:
+                                df_plot[col] = 0
+                        
+                        fig = plot_heatmap(df_plot.values, df_plot.index.tolist(), feature_names=df_plot.columns.tolist())
+                    else:
+                        # 用户想看原始值 (比如具体的面积数值)
+                        fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
+                    
+                    st.pyplot(fig)
+
         except Exception as e:
-            st.error(f"可视化加载失败: {e}")
+            st.error(f"绘图出错: {e}")
+    
     # 这里展示的是 result 目录下的所有文件（包含 Step 3 的解析文件和 Step 4 的矩阵文件）               
     render_file_manager(DIRS["result"], title="融合及中间数据管理", file_ext=".csv", key_prefix="step4")
 # ========================================================
@@ -997,7 +1042,7 @@ elif step == "4. 数据融合&展示":
 # ========================================================
 elif step == "5. 数据分类与导出":
     st.header("📊 步骤 5: 智能分区分类")
-    auto_path = os.path.join(DIRS["result"], "parsed_final_matrix.csv")
+    auto_path = os.path.join(DIRS["result"], "fusion_final_matrix.csv")
     df_matrix = None
     # 1. 数据源选择
     data_source_opt = st.radio("数据来源", ["自动加载 (步骤4结果)", "手动上传 (CSV)"])

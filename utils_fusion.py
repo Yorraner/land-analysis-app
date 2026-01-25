@@ -51,7 +51,6 @@ def preprocess_X(X, eps=1e-8, use_log=True):
     if not isinstance(X, np.ndarray):
         X = np.array(X, dtype=np.float64)
     
-    # 复制一份，避免修改原数据
     X_proc = X.copy().astype(np.float64)
     X_norm = np.zeros_like(X_proc, dtype=np.float64)
     
@@ -71,9 +70,10 @@ def preprocess_X(X, eps=1e-8, use_log=True):
     
     # 4. 布尔/打分相关 (不进行 Log 变换)
     # 27=规划打分, 3=林地(占比), 28-32=存在问题
-    bool_idx = [3] + list(range(28, 33)) 
+    # [3] 林地占比不进行归一化 
+    bool_idx =  list(range(28, 33)) 
     score_idx = [27]
-    
+    forest_ratio_idx = [3]
     # === 1. Log1p 变换 (关键步骤) ===
     if use_log:
         # 汇总所有需要 Log 的列 (面积、金额、数量)
@@ -98,7 +98,7 @@ def preprocess_X(X, eps=1e-8, use_log=True):
             vals = X_proc[:, col]
             vmin, vmax = vals.min(), vals.max()
             if (vmax - vmin) > eps:
-                X_norm[:, col] = (vals - vmin) / (vmax - vmin)
+                X_norm[:, col] = (vals - vmin) / (vmax - vmin)*0.99999 + 0.00001
             else:
                 X_norm[:, col] = 0.0 # 如果所有值都一样，归一化为0
                 
@@ -116,5 +116,10 @@ def preprocess_X(X, eps=1e-8, use_log=True):
             # 强制二值化
             vals = np.where(vals > 0, 1.0, 0.0)
             X_norm[:, col] = vals * 0.5
-            
+    # D. 林地占比列 (0-1) -> 直接使用
+    for col in forest_ratio_idx:
+        if col < X.shape[1]:
+            vals = X[:, col]
+            X_norm[:, col] = vals
+    
     return X_norm

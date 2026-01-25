@@ -216,6 +216,74 @@ def parse_project_row(raw_json_input):
     return pd.Series(final_result)
 
 # ==========================================
+# 5. 空间布局 解析器
+# ==========================================
+def parse_spatial_row(raw_json_input, spatial_cols):
+    """
+    解析“空间布局”数据。
+    输入示例: {"output": "{\"城镇开发边界调整\":{\"调入面积_ha\":null, ...}}"}
+    目标列: ['永农调入规模（公顷）', '永农调出规模（公顷）', '城镇开发调入规模（公顷）', '城镇开发调出规模（公顷）', '规划单元空间调整打分（最高5分）']
+    """
+    # 初始化结果字典，默认填 0.0
+    final_result = {col: 0.0 for col in spatial_cols}
+    
+    if pd.isna(raw_json_input) or raw_json_input == "":
+        return pd.Series(final_result)
+
+    try:
+        # 1. 剥离外层 JSON，获取 output 内容
+        inner_content = str(raw_json_input)
+        try:
+            if isinstance(raw_json_input, str):
+                outer = json.loads(raw_json_input)
+                if isinstance(outer, dict):
+                    # output 对应的值是一个 JSON 字符串
+                    inner_content = outer.get("output", raw_json_input)
+        except:
+            pass
+
+        # 2. 解析内层 JSON 字符串
+        data_dict = {}
+        try:
+            # 清洗可能存在的 Markdown 代码块标记 ```json ... ```
+            clean_content = re.sub(r'^```json\s*|\s*```$', '', inner_content.strip())
+            data_dict = json.loads(clean_content)
+        except:
+            # 如果 JSON 解析失败，尝试用正则提取关键数值 (兜底策略)
+            pass
+        print(data_dict)
+        # 3. 映射数据到目标列
+        if isinstance(data_dict, dict):
+            # A. 永久基本农田调整
+            # 目标结构: data_dict["永久基本农田调整"]["调入面积_ha"]
+            if "永久基本农田调整" in data_dict:
+                item = data_dict["永久基本农田调整"]
+                if isinstance(item, dict):
+                    # 使用 or 0.0 防止 null 值报错
+                    final_result['永农调入规模（公顷）'] = float(item.get("调入面积_ha") or 0.0)
+                    final_result['永农调出规模（公顷）'] = float(item.get("调出面积_ha") or 0.0)
+
+            # B. 城镇开发边界调整
+            if "城镇开发边界调整" in data_dict:
+                item = data_dict["城镇开发边界调整"]
+                if isinstance(item, dict):
+                    final_result['城镇开发调入规模（公顷）'] = float(item.get("调入面积_ha") or 0.0)
+                    final_result['城镇开发调出规模（公顷）'] = float(item.get("调出面积_ha") or 0.0)
+
+            # C. 规划单元空间调整打分 (如果 JSON 里有这个字段)
+            # 假设 JSON 里可能直接有这个 key，或者在某个子项里
+            # 如果没有，默认保持 0.0
+            if "规划单元空间调整打分" in data_dict:
+                final_result['规划单元空间调整打分（最高5分）'] = float(data_dict.get("规划单元空间调整打分") or 0.0)
+            
+
+    except Exception:
+        # print(f"空间布局解析出错: {e}")
+        pass
+
+    return pd.Series(final_result)
+
+# ==========================================
 # 统一处理入口
 # ==========================================
 def process_raw_data(df, data_type):
@@ -276,10 +344,11 @@ def process_raw_data(df, data_type):
     elif "项目" in data_type:
         return df.apply(lambda row: parse_project_row(row.get('rawdata')), axis=1)
     
-    # 5. 空间布局 (如果后续有单独的解析逻辑，可加在这里，目前暂无特定逻辑)
-    elif "空间" in data_type:
+    # 5. 空间布局 
+    elif "空间布局" in data_type:
+        print("Processing spatial layout data...")
         # 假设空间布局也是类似潜力的 JSON 提取
         spatial_cols = ['永农调入规模（公顷）', '永农调出规模（公顷）', '城镇开发调入规模（公顷）', '城镇开发调出规模（公顷）', '规划单元空间调整打分（最高5分）']
-        return df.apply(lambda row: parse_potential_row(row.get('rawdata'), spatial_cols), axis=1)
+        return df.apply(lambda row: parse_spatial_row(row.get('rawdata'), spatial_cols), axis=1)
     
     return df
