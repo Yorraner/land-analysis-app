@@ -3,6 +3,7 @@ import seaborn as sns
 from matplotlib import font_manager
 import os
 from matplotlib.patches import Patch
+import matplotlib.font_manager as fm
 import numpy as np
 import platform
 import requests  # 需要确保 requirements.txt 中有 requests
@@ -15,51 +16,33 @@ warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", module="matplotlib")
 warnings.filterwarnings("ignore", module="seaborn")
 
-
 def get_chinese_font():
     """
-    获取中文字体。
-    逻辑：
-    1. 检查当前目录下是否有 simhei.ttf
-    2. 如果没有，尝试从网络下载 (确保云端可用)
-    3. 如果下载失败，尝试查找系统常见字体路径
+    优先加载项目自带的字体文件，彻底解决云端乱码
     """
-    font_name = "simhei.ttf"
-    # 获取当前文件所在目录，确保字体存在项目里
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    local_font_path = os.path.join(current_dir, font_name)
-
-    # 1. 检查本地是否存在
-    if os.path.exists(local_font_path):
-        return font_manager.FontProperties(fname=local_font_path)
-
-    # 2. 尝试下载 (使用 GitHub 镜像源或其他稳定源)
-    print(f"未找到本地字体，正在尝试下载 {font_name} ...")
-    url = "https://github.com/StellarCN/scp_zh/raw/master/fonts/SimHei.ttf"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            with open(local_font_path, "wb") as f:
-                f.write(response.content)
-            print("✅ 字体下载成功！")
-            return font_manager.FontProperties(fname=local_font_path)
-    except Exception as e:
-        print(f"❌ 字体下载失败: {e}")
-
-    # 3. 最后的兜底：尝试系统路径 (WSL, Mac, Linux apt)
-    system_font_paths = [
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # Linux 常见开源字体
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/mnt/c/Windows/Fonts/simhei.ttf", # WSL
-        "C:/Windows/Fonts/simhei.ttf",     # Windows
-    ]
+    # ================= 配置区 =================
+    # 请根据你实际上传的位置修改这里
+    # 场景 1：如果你把 SimHei.ttf 放在了项目根目录
+    font_name = "simhei.ttf" 
     
-    for path in system_font_paths:
-        if os.path.exists(path):
-            return font_manager.FontProperties(fname=path)
-            
-    print("⚠️ 警告：未找到任何中文字体，中文可能显示为乱码。")
-    return None
+    # 场景 2：如果你放在了 fonts 文件夹下 (推荐)
+    # font_name = "fonts/SimHei.ttf"
+    # =========================================
+
+    # 获取当前工作目录 (Streamlit 运行时通常是项目根目录)
+    current_dir = os.getcwd()
+    font_path = os.path.join(current_dir, font_name)
+
+    # 1. 检查文件是否存在 (这一步非常关键，防止路径写错导致崩溃)
+    if os.path.exists(font_path):
+        # print(f"✅ 成功加载字体文件: {font_path}") # 本地调试用
+        return fm.FontProperties(fname=font_path)
+    else:
+        print(f"⚠️ 警告：未找到字体文件: {font_path}，尝试使用系统默认字体。")
+        try:
+            return fm.FontProperties(family=['DejaVu Sans', 'WenQuanYi Micro Hei'])
+        except:
+            return fm.FontProperties(family='sans-serif')
 
 def plot_heatmap(X_norm, regions, feature_names=None):
     """
