@@ -20,3 +20,5 @@ venv/
 *.xlsx
 *.pkl
 *.csv
+*.png
+

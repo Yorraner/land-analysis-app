@@ -19,20 +19,19 @@ def get_base64_of_bin_file(bin_file):
         return ""
 
 
-USER_DB_FILE = "../users.json"
 DEFAULT_PASS = "123456"
 
-def load_users():
-    if not os.path.exists(USER_DB_FILE):
+def load_users(json_path):
+    if not os.path.exists(json_path):
         default_users = {"admin": DEFAULT_PASS, "user": DEFAULT_PASS}
-        with open(USER_DB_FILE, "w") as f:
+        with open(json_path, "w") as f:
             json.dump(default_users, f)
         return default_users
-    with open(USER_DB_FILE, "r") as f:
+    with open(json_path, "r") as f:
         return json.load(f)
 
-def save_users(users):
-    with open(USER_DB_FILE, "w") as f:
+def save_users(users,json_path):
+    with open(json_path, "w") as f:
         json.dump(users, f)
 
 # === 2. 验证码生成模块 ===
@@ -45,11 +44,11 @@ def generate_captcha():
     return captcha_text, data
 
 # === 3. 主登录逻辑 ===
-def check_password(bg_path):
+def check_password(bg_path,json_path="./users.json"):
     """返回 `True` 如果登录成功"""
     
     # 初始化用户数据库
-    users_db = load_users()
+    users_db = load_users(json_path)
 
     # 初始化验证码 (如果在session中不存在)
     if "captcha_correct_text" not in st.session_state:
@@ -179,11 +178,10 @@ def check_password(bg_path):
             return
 
         users_db[user] = new_p
-        save_users(users_db)
+        save_users(users_db,json_path)
         
         # 解除强制锁定，进入系统
         st.session_state["force_change_pwd"] = False
-        st.success("✅ 密码修改成功！正在进入系统...")
         time.sleep(1)
         st.rerun()
 
@@ -191,7 +189,6 @@ def check_password(bg_path):
     def show_login_form(bg_path):
         inject_css(bg_path)  
         st.markdown("<br><br><br>", unsafe_allow_html=True)
-
         # 水平居中列布局
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:

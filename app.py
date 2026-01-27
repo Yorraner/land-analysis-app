@@ -20,9 +20,10 @@ from utils.login import check_password
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
 bg_path = "imgs/bg1.png"
+json_path="./users.json"
 # === login ===
-# if not check_password(bg_path):
-#     st.stop()
+if not check_password(bg_path,json_path):
+    st.stop()
 # === 页面配置 ===
 st.set_page_config(page_title="土地整治智能分析平台", layout="wide")
 st.title("🏗️ 土地整治文档智能分类系统")
@@ -96,7 +97,8 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
         st.info("暂无文件生成。")
         return
     # scan files
-    files = [f for f in os.listdir(dir_path) if f.endswith(file_ext)]
+    # files = [f for f in os.listdir(dir_path) if f.endswith(file_ext)]
+    files =  os.listdir(dir_path)
     files.sort(key=lambda x: os.path.getmtime(os.path.join(dir_path, x)), reverse=True) # 按时间倒序
 
     if files:
@@ -127,10 +129,11 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
             if  key_prefix =="step3":
                 select_files = [i for i in files if i.startswith('parsed') ]
             elif  key_prefix =="step4":
-                select_files = [i for i in files if i.startswith('fusion')]
+                select_files = [i for i in files if not i.startswith('parsed')]
             sel_file = st.selectbox("选择文件预览:", select_files, key=f"{key_prefix}_sel")
             if sel_file:
                 file_path = os.path.join(dir_path, sel_file)
+                file_ext = os.path.splitext(sel_file)[1].lower()
                 if file_ext == ".csv":
                     try:
                         try: df = pd.read_csv(file_path)
@@ -141,15 +144,16 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
                         st.dataframe(df_preview)
                     except Exception as e:
                         st.error(f"读取失败: {e}")
-                elif file_ext == ".pdf":
-                    st.caption("PDF 文件不支持直接预览，请下载查看。")
+                elif file_ext == ".png":
+                    st.caption("png 文件不支持直接预览，请下载查看。")
         with c2:
             if sel_file:
                 file_path = os.path.join(dir_path, sel_file)
                 with open(file_path, "rb") as f:
                     mime_type = "text/csv" if file_ext == ".csv" else "application/pdf"
                     st.download_button(
-                        label=f"📥 下载 {sel_file}",
+                        label=f"📥 下载 \
+                        \n{sel_file}",
                         data=f,
                         file_name=sel_file,
                         mime=mime_type,
@@ -157,13 +161,72 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
                         type="primary"
                     )           
         # 4. package download
-        zip_name = f"all_{key_prefix}_files.zip"
-        zip_path = os.path.join(TEMP_DIR, zip_name)
-        with zipfile.ZipFile(zip_path, 'w') as zf:
+        st.caption("📦 **批量下载**")
+        c_dl1, c_dl2 = st.columns([2, 1])
+        with c_dl1:
+            # 1. 提供文件类型选择 (根据当前目录下的实际文件后缀自动生成选项)
+            # 获取目录下所有文件的后缀
+            available_exts = list(set([f.split('.')[-1] for f in files if '.' in f]))
+            # 设置默认选中的类型
+            default_exts = []
+            if "csv" in available_exts: default_exts.append("csv")
+            # if "png" in available_exts: default_exts.append("png") # 如果有图，默认也勾选
+            selected_exts = st.multiselect(
+                "选择要打包的文件类型:",
+                options=available_exts,
+                default=default_exts,
+                key=f"{key_prefix}_ext_sel"
+            )
+        with c_dl2:
+            # 2. 根据步骤 (Key Prefix) 和 选中的类型 进行双重过滤
+            files_to_zip = []
+            
             for f in files:
-                zf.write(os.path.join(dir_path, f), f)
-        with open(zip_path, "rb") as f:
-            st.download_button(f"📦 打包下载全部 ({len(files)}个)", f, zip_name, "application/zip", key=f"{key_prefix}_zip")        
+                # 获取文件后缀
+                f_ext = f.split('.')[-1]
+                if f_ext in selected_exts:
+                    if key_prefix == "step3":
+                        # Step 3 只下载以 'parsed' 开头的文件
+                        if f.startswith('parsed'):
+                            files_to_zip.append(f)
+                    
+                    elif key_prefix == "step4":
+                        files_to_zip.append(f)
+                        
+                    elif key_prefix == "step5":
+                        files_to_zip.append(f)
+                    
+                    else:
+                        # 其他情况，只要后缀匹配就加入
+                        files_to_zip.append(f)
+
+            # 3. 执行打包
+            zip_name = f"selected_{key_prefix}_files.zip"
+            zip_path = os.path.join(TEMP_DIR, zip_name) # 确保 TEMP_DIR 已定义
+
+            # 只有当有文件被选中时才显示下载按钮
+            if files_to_zip:
+                # 创建 ZIP
+                with zipfile.ZipFile(zip_path, 'w') as zf:
+                    for f in files_to_zip:
+                        # dir_path 是传入该函数的当前目录路径
+                        full_path = os.path.join(dir_path, f)
+                        zf.write(full_path, f)
+                
+                # 显示按钮
+                with open(zip_path, "rb") as f:
+                    st.download_button(
+                        f"⬇️ 下载选中文件 ({len(files_to_zip)}个)", 
+                        f, 
+                        zip_name, 
+                        "application/zip", 
+                        key=f"{key_prefix}_zip",
+                        type="primary"
+                    )
+            else:
+                st.caption("⚠️ 没有匹配的文件可下载")
+        
+    
     else:
         st.info(f"当前任务的目录为空 ({dir_path})")
 # ========================================================
@@ -621,7 +684,6 @@ elif step == "2. 大模型数据获取":
 # # ========================================================
 elif step == "3. 数据解析":
     st.header("🧹 步骤 3: 结构化数据解析")
-    # === 使用 Tabs 分流：正常解析 vs 手动上传 ===
     tab1, tab2,tab3 = st.tabs(["⚙️ 解析原始数据", 
                                "📤 上传外部数据 (补充缺失项)",
                                "🔄 加载历史中间数据 (.pkl)"])
@@ -799,6 +861,7 @@ elif step == "4. 数据融合&展示":
             default=default_files,
             help="选择您刚刚从 PDF 解析出来的 parsed_*.csv 文件。"
             )
+        use_history = False
         with col_sel2:
             st.write("📚 **历史数据融合**")
             use_history = False
@@ -902,24 +965,22 @@ elif step == "4. 数据融合&展示":
                     except Exception as e:
                             st.error(f"归一化失败: {e}")
                 else:
-                        st.error("融合失败：所选数据表之间没有公共地区。")
-    #                   
+                        st.error("融合失败：所选数据表之间没有公共地区。")                
     if os.path.exists(norm_res_path):
         st.divider()
         st.subheader("🎨 多维度可视化")
-
         # 1. 准备选项：自动扫描 result 目录
         vis_options = {}
-        
         # 找最终矩阵 (根据你的文件名特征)
         final_files = [f for f in os.listdir(DIRS["result"]) if "fusion_final" in f]
         for f in final_files:
             vis_options[f"🏆 最终融合矩阵 ({f})"] = os.path.join(DIRS["result"], f)
-        
         # 找其他分项数据
         sub_files = [f for f in os.listdir(DIRS["result"]) if "fusion_final" not in f and f.endswith(".csv")]
-        for f in sub_files:
-            vis_options[f"📄 分项数据: {f}"] = os.path.join(DIRS["result"], f)
+        no_vis_files = ['parsed_issue.csv','parsed_ptential.csv','parsed_potential.csv',]  # 这些文件不适合可视化
+        vis_files = [f for f in sub_files if f not in no_vis_files ]
+        for f in vis_files:
+                vis_options[f"📄 分项数据: {f}"] = os.path.join(DIRS["result"], f)
 
         # 2. 用户选择
         c_vis1, c_vis2 = st.columns([2, 1])
@@ -928,7 +989,6 @@ elif step == "4. 数据融合&展示":
         
         target_path = vis_options[selected_vis_key]
         
-        # 3. 绘图逻辑
         try:
             df_vis = pd.read_csv(target_path, index_col=0)
             # 仅保留数值列
@@ -949,21 +1009,11 @@ elif step == "4. 数据融合&展示":
                     
                     # 直接画图 (df_vis 已经是完美状态)
                     fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
+                    history_tag = "_with_history" if use_history else ""
+                    fig.savefig(f"{DIRS['result']}/final_result_heatmap{suffix}{history_tag}.png", dpi=300, bbox_inches='tight')
                     st.pyplot(fig)
-
                 else:
-                    # Case B: 分项原始数据 -> 仍然需要归一化选项
-                    # 因为分项文件(如 _landuse.csv) 里存的可能还是 336.64 这种原始数值
                     with c_vis2:
-                        do_norm = st.checkbox(
-                            "应用可视化增强 (Log + Norm)", 
-                            value=True, 
-                            key=f"norm_cb_{selected_vis_key}",
-                            help="分项数据通常为原始物理量，建议开启归一化以看清分布。"
-                        )
-                    
-                    if do_norm:
-                        # 这里做临时的可视化归一化 (不影响原文件)
                         # 1. Log
                         df_proc = np.log1p(np.maximum(df_vis, 0))
                         # 2. Min-Max
@@ -974,12 +1024,10 @@ elif step == "4. 数据融合&展示":
                                 df_plot[col] = (df_proc[col] - df_proc[col].min()) / range_val[col]
                             else:
                                 df_plot[col] = 0
-                        
+                        name = selected_vis_key.split(":")[-1].split('.')[0]
+                        history_tag = "_with_history" if use_history else ""
                         fig = plot_heatmap(df_plot.values, df_plot.index.tolist(), feature_names=df_plot.columns.tolist())
-                    else:
-                        # 用户想看原始值 (比如具体的面积数值)
-                        fig = plot_heatmap(df_vis.values, df_vis.index.tolist(), feature_names=df_vis.columns.tolist())
-                    
+                        fig.savefig(f"{DIRS['result']}/norm_{name}_heatmap{suffix}{history_tag}.png", dpi=300, bbox_inches='tight')
                     st.pyplot(fig)
 
         except Exception as e:
@@ -992,31 +1040,33 @@ elif step == "4. 数据融合&展示":
 # ========================================================
 elif step == "5. 数据分类与导出":
     st.header("📊 步骤 5: 智能分区分类")
-    auto_path = os.path.join(DIRS["result"], "fusion_final_matrix.csv")
     df_matrix = None
-    # 1. 数据源选择
-    data_source_opt = st.radio("数据来源", ["自动加载 (步骤4结果)", "手动上传 (CSV)"])
-    if data_source_opt == "自动加载 (步骤4结果)":
-        if os.path.exists(auto_path):
-            st.success(f"✅ 已检测到文件: parsed_final_matrix.csv")
-            df_matrix = pd.read_csv(auto_path, index_col=0)
-        else:
-            st.warning("⚠️ 未找到自动生成的文件，请先完成步骤 4 或选择手动上传。")
-    elif data_source_opt == "手动上传 (CSV)":
-        uploaded_matrix = st.file_uploader("上传特征矩阵 CSV", type=["csv"])
-        if uploaded_matrix:
-            df_matrix = pd.read_csv(uploaded_matrix, index_col=0)
-    # 2. 如果数据加载成功，显示配置项
+    data_version = st.radio(
+            "选择要使用的矩阵版本:",
+            options=["Log 对数变换版 (推荐)", "原始数值版"],
+            index=0, # 默认选 Log
+            help="对应步骤 4 生成的文件。\n- Log版: 文件名为 fusion_final_matrix_log.csv，适合聚类分析。\n- 原始版: 文件名为 fusion_final_matrix.csv，数值未压缩。"
+        )
+    # 2. 根据选择动态构造文件名
+    if "Log" in data_version:
+        target_filename = "fusion_final_matrix_log.csv"
+    else:
+        target_filename = "fusion_final_matrix.csv"
+    auto_path = os.path.join(DIRS["result"], target_filename)
+    if os.path.exists(auto_path):
+        st.success(f"✅ 已检测到文件: {auto_path}")
+        df_matrix = pd.read_csv(auto_path, index_col=0)
+    else:
+        st.warning("⚠️ 未找到自动生成的文件，请先完成步骤 4 或选择手动上传。")
     if df_matrix is not None:
         st.divider()
         st.write(f"📊 **当前数据:** {df_matrix.shape[0]} 个地区, {df_matrix.shape[1]} 个特征")
         with st.expander("查看数据详情"):
             st.dataframe(df_matrix.head())
-        
         st.subheader("🛠️ 模型参数配置")
-        col1, col2 = st.columns([1, 2])
+        col1, col2 = st.columns(2)
         with col1:
-            n_clusters = st.slider("聚类类别数目 (K)", min_value=2, max_value=10, value=3)
+            n_clusters = st.slider("聚类类别数目 (K)", min_value=5, max_value=9, value=6)
         with col2:
             st.markdown("**⚖️ 权重设定 (专家打分)**")
             weight_settings = {}
@@ -1025,42 +1075,57 @@ elif step == "5. 数据分类与导出":
                 with c1:
                     weight_settings["自然资源禀赋"] = st.number_input("1. 自然资源", value=5.0, step=0.1)
                 with c2:
-                    weight_settings["自然资源-布尔项"] = st.number_input("  ↳ 林地/布尔", value=1.0, step=0.1)
-                weight_settings["潜力项数据"] = st.number_input("2. 潜力数据", value=1.0, step=0.1)
+                    weight_settings["自然资源-布尔项"] = st.number_input("  ↳ 林地/布尔", value=0.5, step=0.1)
+                weight_settings["潜力项数据"] = st.number_input("2. 潜力数据", value=0.4, step=0.1)
                 c3, c4 = st.columns(2)
                 with c3: weight_settings["空间布局"] = st.number_input("3. 空间布局", value=0.1, step=0.05)
                 with c4: weight_settings["存在问题"] = st.number_input("4. 存在问题", value=0.1, step=0.05)
                 weight_settings["子项目数据"] = st.number_input("5. 子项目", value=0.05, step=0.01)
-
+        c1 = st.columns(1)[0]
+        with c1:
+            # 给按钮一个唯一的 key
+            start_btn = st.button("🚀 开始聚类分析", type="primary", key="btn_start_cluster")
         # 3. algorithm
-        if st.button("🚀 开始聚类分析", type="primary"):
+        if start_btn:
             try:
                 total_feats = df_matrix.shape[1]
                 weights_vec = build_weight_vector(weight_settings, df_matrix.columns)
                 print(f"权重向量形状: {weights_vec.shape}, 特征列数: {len(df_matrix.columns)}")
                 with st.spinner("正在进行熵权专家聚类..."):
                     df_result, feature_imp, combined_weights, centroids, labels = \
-                        clustering_kmeans_with_entropy_expert(
+                    clustering_kmeans_with_entropy_expert(
                             df_matrix.values, 
                             df_matrix.index.tolist(), 
                             expert_weights=weights_vec, 
                             n_clusters=n_clusters,
                             path=DIRS["final"]
                         )
-
-                st.success("✅ 聚类完成！")
-                
-                # Tab 分页展示不同图表
-                # tab_res1, tab_res2, tab_res3, tab_res4 = st.tabs(["📋 结果总表", "🕸️ 类别特征分布(雷达图)", "📊 地区概率分布(条形图)", "📈 降维分布(PCA)"])
-                tab_res1, tab_res2, tab_res3 = st.tabs(["📋 结果总表", "🕸️ 类别特征分布(雷达图)", "📊 地区概率分布(条形图)"])
-                with tab_res1:
-                    st.dataframe(df_result)
-                    st.download_button("📥 下载详细结果 Excel", 
-                                     data=df_result.to_csv().encode('utf-8-sig'),
-                                     file_name="clustering_result_full.csv")
-
-                with tab_res2:
-                    st.subheader("各类别主要关注特征 (Centroids × Weights)")
+                    print('df result',df_result)
+                    df_result["Cluster"] = labels + 1
+                    # state save
+                    st.session_state['cluster_done'] = True
+                    st.session_state['cluster_labels'] = labels
+                    st.session_state['cluster_centroids'] = centroids
+                    st.session_state['cluster_df'] = df_result
+                    st.session_state['cluster_weights'] = combined_weights
+                    st.success("✅ 聚类完成！")
+            except Exception as e:
+                st.error(f"聚类失败: {e}")
+        if st.session_state.get('cluster_done', False):
+            df_result = st.session_state['cluster_df']
+            centroids = st.session_state['cluster_centroids']
+            labels = st.session_state['cluster_labels']
+            combined_weights = st.session_state.get('cluster_weights')
+            
+            st.divider()
+            tab_res1, tab_res2, tab_res3 = st.tabs(["📋 结果总表", "🕸️ 类别特征分布(雷达图)", "📊 地区概率分布(条形图)"])
+            with tab_res1:
+                st.dataframe(df_result)
+                st.download_button("📥 下载详细结果 Excel", 
+                                    data=df_result.to_csv().encode('utf-8-sig'),
+                                    file_name="clustering_result_full.csv")
+            with tab_res2:
+                    st.subheader("各类别主要关注特征")
                     # 1. 准备权重
                     if isinstance(combined_weights, pd.Series):
                         analysis_weights = combined_weights.values
@@ -1082,8 +1147,9 @@ elif step == "5. 数据分类与导出":
                             # 获取第 k 类的中心点坐标 (归一化后的平均值)
                             cluster_center_profile = centroids[k]
                             # === 核心公式：中心值 × 权重 ===
-                            # 目的：凸显那些"数值高"且"权重高"的关键特征
-                            cluster_profile = cluster_center_profile * analysis_weights
+                           
+                            # cluster_profile = cluster_center_profile * analysis_weights
+                            cluster_profile = cluster_center_profile
                             # 存入 DataFrame
                             category_feature_attention[f"Cluster_{k+1}"] = cluster_profile
                         # 4. 调用绘图
@@ -1097,22 +1163,100 @@ elif step == "5. 数据分类与导出":
                             st.error(f"雷达图绘制失败: {e_plot}")
 
                         # 5. 展示数据表格
-                        with st.expander("查看特征注意力数值详情"):
-                            st.dataframe(category_feature_attention.style.background_gradient(cmap='Greens'))
-                with tab_res3:
+                        with st.expander("特征注意力数值详情"):
+                            st.markdown("#### 🏆 各类别关注度 Top 10 特征")
+                            st.caption("格式说明：特征名称 (注意力分值)")
+                            top_n = 10
+                            rank_data = {}
+                            for col in category_feature_attention.columns:
+                                # 1. 对每一列进行降序排列
+                                top_series = category_feature_attention[col].sort_values(ascending=False).head(top_n)
+                                
+                                # 2. 格式化为字符串: "特征名 (0.123)"
+                                formatted_vals = [
+                                    f"{feat} ({val:.4f})" 
+                                    for feat, val in top_series.items()
+                                ]
+                                # 3. 防止特征总数少于10个导致长度不一致
+                                while len(formatted_vals) < top_n:
+                                    formatted_vals.append("-")
+                                    
+                                rank_data[col] = formatted_vals
+                            # 4. 构建排名 DataFrame
+                            df_rank = pd.DataFrame(rank_data)
+                            df_rank.index = [f"No.{i+1}" for i in range(top_n)] # 设置行索引为 No.1 ~ No.10
+                            # 展示排名表
+                            st.dataframe(df_rank, width='content')
+                           
+            with tab_res3:
                     st.subheader("各地区归属概率可视化")
-                    # 调用修改后的条形图函数
-                    fig_bars = plot_horizontal_bars_from_df(df_result)
-                    st.pyplot(fig_bars)
-                    fig_bars_path = os.path.join(DIRS["final"], f"{n_clusters}_region_membership_bars.png")
-                    fig_bars.savefig(fig_bars_path, dpi=300, bbox_inches='tight')
                     
-                st.success(f"🎉 所有分析结果（表格与图表）已自动保存至: `{DIRS['final']}`")
-            except Exception as e:
-                st.error(f"分析过程发生错误: {str(e)}")
-                # 打印详细报错方便调试
-                import traceback
-                st.text(traceback.format_exc())      
+                    with st.expander("🛠️ 视图设置 (地区过多,筛选)", expanded=True):
+                        c_view1, c_view2 = st.columns([1, 2])
+                        with c_view1:
+                            # 1. 选择显示模式
+                            view_mode = st.radio(
+                                "选择展示范围:", 
+                                ["🏆 仅展示前 N 个 (预览)", "🔍 手动搜索特定地区", "📄 全量展示 (可能较长)"],
+                                index=0 # 默认只看前 N 个，防止刷屏
+                            )
+                        with c_view2:
+                            # 2. 根据模式显示不同控件
+                            df_to_plot = df_result.copy()
+                            
+                            if "前 N 个" in view_mode:
+                                # 默认展示 20 个，最大不超过总数
+                                max_val = len(df_result)
+                                default_val = min(20, max_val)
+                                top_n = st.slider("选择展示的地区数量:", min_value=5, max_value=max_val, value=default_val)
+                                
+                                # 截取前 N 行 (假设 df_result 已经排好序，如果没有，可以先 sort_index 或 sort_values)
+                                df_to_plot = df_result.head(top_n)
+                                st.caption(f"当前展示: 第 1 至 {top_n} 个地区")
+                                
+                            elif "手动搜索" in view_mode:
+                                all_regions = df_result.index.tolist()
+                                selected_regions = st.multiselect(
+                                    "输入或选择要查看的地区:", 
+                                    options=all_regions,
+                                    default=all_regions[:5] # 默认选前5个演示
+                                )
+                                if selected_regions:
+                                    df_to_plot = df_result.loc[selected_regions]
+                                else:
+                                    st.warning("⚠️ 请至少选择一个地区。")
+                                    df_to_plot = pd.DataFrame() # 空表
+                                    
+                            else: # 全量展示
+                                st.info(f"正在展示全部 {len(df_result)} 个地区，图片可能较长。")
+                                df_to_plot = df_result
+
+                    if not df_to_plot.empty:
+                        # 3. 计算动态图表高度 (优化体验)
+                        # 假设每个条形占 0.4 英寸，基础高度 2 英寸
+                        # 这样选 100 个地区时图会自动变长，不会挤在一起
+                        dynamic_figsize = (10, max(4, len(df_to_plot) * 0.4))
+                        # 调用你的绘图函数 (注意：如果你原来的函数不能传 figsize，这里可能需要传整个 df_to_plot)
+                        # 假设 plot_horizontal_bars_from_df 接收 DataFrame 并返回 figure
+                        # 如果你的 plot 函数内部写死了 figsize，可能需要稍微改一下 plot 函数让它自适应，
+                        # 或者依靠 matplotlib 的自动布局。
+                        try:
+                            fig_bars = plot_horizontal_bars_from_df(df_to_plot)
+                            
+                            # 尝试调整当前 figure 的尺寸 (如果函数内部没锁死的话)
+                            fig_bars.set_size_inches(dynamic_figsize)
+                            
+                            st.pyplot(fig_bars, width='content')
+                            # 4. 保存
+                            # 注意：这里保存的是"当前视图"的图片。
+                            # 如果需要保存全量图片，可以在这里用 df_result 再画一次，或者告诉用户"所见即所得"
+                            save_name = f"{n_clusters}_region_membership_bars_{view_mode}.png"
+                            fig_bars_path = os.path.join(DIRS["final"], save_name)
+                            fig_bars.savefig(fig_bars_path, dpi=300, bbox_inches='tight')
+                            st.caption(f"💾 当前视图已保存为: `{save_name}`")  
+                        except Exception as e:
+                            st.error(f"绘图失败: {e}")
+                    
+                    st.success(f"🎉 所有分析结果（表格与图表）已自动保存至: `{DIRS['final']}`") 
     # === 展示文件管理 ===
-    render_file_manager(DIRS["final"], title="最终成果文件 (Step 5 Outputs)", file_ext=".png", key_prefix="step5_img")
-    render_file_manager(DIRS["final"], title="最终成果数据 (Step 5 Data)", file_ext=".xlsx", key_prefix="step5_data")
+    render_file_manager(DIRS["final"], title="最终成果", file_ext=".png", key_prefix="step5_img")

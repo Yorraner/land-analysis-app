@@ -6,6 +6,15 @@ from matplotlib.patches import Patch
 import numpy as np
 import platform
 import requests  # 需要确保 requirements.txt 中有 requests
+import warnings
+
+# 忽略所有 UserWarning
+warnings.filterwarnings("ignore")
+
+# 或者更具体一点，只忽略这一类字体警告
+warnings.filterwarnings("ignore", module="matplotlib")
+warnings.filterwarnings("ignore", module="seaborn")
+
 
 def get_chinese_font():
     """

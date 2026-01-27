@@ -61,13 +61,10 @@ def preprocess_X(X, eps=1e-8, use_log=True):
     area_specific_idx = [34, 37, 40, 43, 46, 49, 52] # 子项目面积
     
     area_idx = list(range(0, 3)) + area_potential_idx + area_spatial_idx + area_specific_idx
-    
     # 2. 金额相关
-    money_idx = [35, 38, 41, 44, 47, 50, 53]
-    
+    money_idx = [35, 38, 41, 44, 47, 50, 53] 
     # 3. 数量相关
     count_idx = [33, 36, 39, 42, 45, 48, 51]
-    
     # 4. 布尔/打分相关 (不进行 Log 变换)
     # 27=规划打分, 3=林地(占比), 28-32=存在问题
     # [3] 林地占比不进行归一化 
@@ -82,7 +79,6 @@ def preprocess_X(X, eps=1e-8, use_log=True):
             # 过滤越界索引
             valid = [i for i in idx_list if i < X.shape[1]]
             numeric_indices.extend(valid)
-        
         if numeric_indices:
             # np.log1p(x) = log(x + 1)，可以处理 0 值，且平滑长尾
             # np.maximum(..., 0) 确保没有负数输入
@@ -93,7 +89,6 @@ def preprocess_X(X, eps=1e-8, use_log=True):
     for indices in [area_idx, money_idx, count_idx]:
         valid_idx = [i for i in indices if i < X.shape[1]]
         if not valid_idx: continue
-        
         for col in valid_idx:
             vals = X_proc[:, col]
             vmin, vmax = vals.min(), vals.max()
