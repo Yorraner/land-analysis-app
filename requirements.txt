@@ -12,3 +12,4 @@ PyPDF2
 tqdm
 scikit-learn
 requests
+captcha 

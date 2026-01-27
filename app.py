@@ -6,79 +6,22 @@ import numpy as np
 import time
 import json
 import zipfile
+import time
 import shutil
-from utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, \
+from utils.utils_pdf import extract_section_to_pdf, extract_section_to_pdf_self, \
     extract_info,parser_file,extract_pages_by_keywords,dict_save2csv
-from api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
-from utils_fusion import unify_and_concatenate, preprocess_X # 引入归一化函数
-from utils_vis import plot_heatmap ,plot_horizontal_bars_from_df,plot_category_radar_chart,plot_clusters
-from utils_parse import process_raw_data
-from style import set_bg_hack
-from algorithm import clustering_kmeans_with_entropy_expert,build_weight_vector
+from utils.api_client import CozeClient, get_mock_data, WORKFLOW_CONFIG 
+from utils.utils_fusion import unify_and_concatenate, preprocess_X 
+from utils.utils_vis import plot_heatmap ,plot_horizontal_bars_from_df,plot_category_radar_chart,plot_clusters
+from utils.utils_parse import process_raw_data
+from utils.algorithm import clustering_kmeans_with_entropy_expert,build_weight_vector
+from utils.login import check_password
 
 # from utils_parsers import process_raw_data
 # from utils_fusion import unify_and_concatenate
-
-
-# def check_password():
-#     """Returns `True` if the user had a correct password."""
-    
-#     def password_entered():
-#         """Checks whether a password entered by the user is correct."""
-#         if st.session_state["username"] in ["admin", "user"] and st.session_state["password"] == "123456":
-#             st.session_state["password_correct"] = True
-#             del st.session_state["password"]
-#         else:
-#             st.session_state["password_correct"] = False
-#     # === 核心修改：定义登录界面的布局函数 ===
-#     def show_login_form(error_msg=None):
-#         # 1. 设置背景图
-#         set_bg_hack("./imgs/bg1.png")
-        
-#         # 2. 增加垂直方向的空白，把登录框往下挤 (Vertical Center)
-#         st.markdown("<br><br><br><br>", unsafe_allow_html=True) 
-
-#         # 3. 使用列布局实现水平居中 (Horizontal Center)
-#         col1, col2, col3 = st.columns([1, 2, 1]) 
-#         with col2:
-#             st.markdown("""
-#                 <style>
-#                 div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column;"] > div[data-testid="stVerticalBlock"] {
-#                     background-color: rgba(255, 255, 255, 0.9); /* 白色背景，90%不透明 */
-#                     padding: 30px;
-#                     border-radius: 15px;
-#                     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-#                 }
-#                 </style>
-#                 """, unsafe_allow_html=True)
-#             st.markdown(
-#         """
-#         <div style='text-align: center; margin-bottom: 20px;'>
-#             <div style='font-size: 26px; font-weight: bold; color: #333;'>全域土地综合整治</div>
-#             <div style='font-size: 26px; font-weight: bold; color: #333;'>地区类型分类平台</div>
-#         </div>
-#         """,
-#         unsafe_allow_html=True
-#     )
-#             st.text_input("用户名", key="username")
-#             st.text_input("密码", type="password", key="password")
-#             st.button("登录", on_click=password_entered, use_container_width=True) # 按钮填满宽度
-            
-#             if error_msg:
-#                 st.error(error_msg)
-
-#     # === 逻辑判断 ===
-#     if "password_correct" not in st.session_state:
-#         show_login_form()
-#         return False
-#     elif not st.session_state["password_correct"]:
-#         show_login_form(error_msg="😕 用户名或密码错误")
-#         return False
-        
-#     else:
-#         return True
-
-# if not check_password():
+bg_path = "imgs/bg1.png"
+# === login ===
+# if not check_password(bg_path):
 #     st.stop()
 # === 页面配置 ===
 st.set_page_config(page_title="土地整治智能分析平台", layout="wide")
@@ -95,12 +38,21 @@ DIRS = {
 }
 TEMPLATE_COLUMNS = {
     "spatial": ["地区", "永农调入规模（公顷）", "永农调出规模（公顷）", "城镇开发调入规模（公顷）", "城镇开发调出规模（公顷）", "规划单元空间调整打分（最高5分）"],
-    "potential": ["地区", "垦造水田潜力", "新增耕地潜力", "耕地恢复潜力", "高标准农田建设潜力", "矿山修复潜力", "红树林保护潜力"],
-    "issue": ["地区", "耕地碎片化_排序", "耕地碎片化_说明", "低效用地问题_排序", "低效用地问题_说明"],
-    "landuse": ["地区", "农用地", "建设用地", "生态保护", "林地占比"],
-    "project": ["地区", "农用地整理类项目_数量", "农用地整理类项目_投资", "农用地整理类项目_规模"],
+    "potential": ["地区", "垦造水田潜力", "新增耕地潜力", "耕地“非粮化”整治潜力","耕地恢复潜力", "高标准农田建设潜力","耕地提质改造潜力",
+                  "补充耕地潜力","耕地集中整治区建设潜力","低效工业用地腾退潜力","存量低效用地潜力","矿山修复潜力", "红树林保护潜力","低效用地再开发潜力",
+                  "三旧改造潜力","城镇低效用地再开发潜力","建设用地增减挂钩（拆旧复垦）潜力",	"土壤整治潜力","造林绿化潜力","流域生态修复潜力"],
+    "issue": ["地区", "耕地碎片化", "产业发展与用地供给矛盾","人地协调矛盾","人与自然的矛盾","低效用地问题"],
+    "LandUse": ["地区", "农用地", "建设用地", "生态保护", "林地占比"],
+    "project": ["地区", "农用地整理类项目_数量", "农用地整理类项目_投资", "农用地整理类项目_规模",
+                "建设用地整理类项目_数量", 	"建设用地整理类项目_投资", 	"建设用地整理类项目_规模", 	
+                "生态保护修复类项目_数量", 	"生态保护修复类项目_投资", 	"生态保护修复类项目_规模", 	
+                "乡村风貌提升和历史文化保护类项目_数量", "乡村风貌提升和历史文化保护类项目_投资", "乡村风貌提升和历史文化保护类项目_规模"	, 
+                "公共服务与基础设施建设类项目_数量"	"公共服务与基础设施建设类项目_投资", "公共服务与基础设施建设类项目_规模"	, 
+                "产业导入类项目_数量", 	"产业导入类项目_投资", 	"产业导入类项目_规模", 
+                "其他类项目_数量", 	"其他类项目_投资", 	"其他类项目_规模", ],
     "default": ["地区", "指标1", "指标2", "指标3"]
 }
+
 
 # 初始化目录
 for d in DIRS.values():
@@ -116,7 +68,6 @@ with st.sidebar:
         "4. 数据融合&展示",
         "5. 数据分类与导出"
     ])
-    
     st.divider()
     if st.button("清理临时文件"):
         if os.path.exists(TEMP_DIR):
@@ -127,7 +78,7 @@ with st.sidebar:
 
 # 定义全局任务字典
 TASK_DICT={
-    "自然资源禀赋":"landuse",
+    "自然资源禀赋":"LandUse",
     "存在问题":"issue",
     "整治潜力":"potential",
     "子项目":"project",
@@ -155,7 +106,7 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
             view_files = [i for i in files if i.startswith('parsed') and not i.endswith("matrix.csv")]
         elif  key_prefix =="step4":
             view_files = [i for i in files if i.startswith('fusion')]
-        df_files = pd.DataFrame(view_files, columns=["文件名"])
+        df_files = pd.DataFrame(view_files, columns=["文件名"],index=range(1, len(view_files)+1))
         st.dataframe(df_files, width="stretch", height=150)
         
         # 2. file delete
@@ -174,7 +125,7 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
         with c1:
             select_files = files
             if  key_prefix =="step3":
-                select_files = [i for i in files if i.startswith('parsed') and not i.endswith("matrix.csv")]
+                select_files = [i for i in files if i.startswith('parsed') ]
             elif  key_prefix =="step4":
                 select_files = [i for i in files if i.startswith('fusion')]
             sel_file = st.selectbox("选择文件预览:", select_files, key=f"{key_prefix}_sel")
@@ -185,7 +136,9 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
                         try: df = pd.read_csv(file_path)
                         except: df = pd.read_csv(file_path, encoding='gbk')
                         st.write(f"📊 `{sel_file}` :")
-                        st.dataframe(df.head())
+                        df_preview = df.head()
+                        df_preview.index = df_preview.index+1
+                        st.dataframe(df_preview)
                     except Exception as e:
                         st.error(f"读取失败: {e}")
                 elif file_ext == ".pdf":
@@ -219,17 +172,11 @@ def render_file_manager(dir_path, title="结果文件管理", file_ext=".csv", k
 if step == "1. 文档上传与裁剪":
     st.header("📄 步骤 1: PDF 文档处理")
     tab1, tab2 = st.tabs(["🚀 批量自动裁剪", "🛠️ 手动裁剪修复"])
-    
-    # --- Tab 1: 自动裁剪 ---
     with tab1:
         st.markdown("上传原始文档，系统将根据提取模式自动裁剪出关键页面。")
-        st.info("💡 提示：默认支持最大 1GB 文件。建议分批上传，避免内存溢出。")
-        
-        # === 改进点 1: 增加文件来源选择 ===
-        source_option = st.radio("选择文件来源", ["📤 上传新文件", "📂 使用服务器已存在文件 (1_uploads)"])
-        
-        target_files = [] # 最终待处理的文件列表 (路径)
-
+        st.info("💡 提示：默认支持最大 1GB 文件。建议分批上传。")
+        source_option = st.radio("选择文件来源", ["📤 上传新文件", "📂 使用服务器已存在文件"])
+        target_files = [] 
         if source_option == "📤 上传新文件":
             uploaded_files = st.file_uploader(
                 "上传 PDF 文件", 
@@ -239,26 +186,18 @@ if step == "1. 文档上传与裁剪":
             )
             
             if uploaded_files:
-                # === 改进点 2: 流式写入硬盘 (防止内存爆炸) ===
-                # 不再一次性把 file.getbuffer() 全读进内存，而是分块写
                 save_status = st.empty()
                 save_status.text("正在保存文件到硬盘...")
                 
                 saved_count = 0
                 for f in uploaded_files:
                     file_path = os.path.join(DIRS["upload"], f.name)
-                    # 只有当文件不存在，或者强制覆盖时才写
                     with open(file_path, "wb") as buffer:
-                        # 对于超大文件，file_uploader 已经是流式的，直接写即可
-                        # shutil.copyfileobj(f, buffer) # 或者用 f.read()
                         buffer.write(f.getbuffer()) 
                     saved_count += 1
                     target_files.append(file_path)
-                
                 save_status.success(f"✅ 已保存 {saved_count} 个文件到服务器缓存。")
-        
         else:
-            # === 改进点 3: 扫描本地已有文件 ===
             if os.path.exists(DIRS["upload"]):
                 existing_pdfs = [f for f in os.listdir(DIRS["upload"]) if f.endswith(".pdf")]
                 if existing_pdfs:
@@ -275,8 +214,6 @@ if step == "1. 文档上传与裁剪":
                         target_files.append(os.path.join(DIRS["upload"], f))
                 else:
                     st.warning("⚠️ 目录为空，请先上传文件。")
-
-        # --- 分割线：配置参数 ---
         st.divider()
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -328,11 +265,9 @@ if step == "1. 文档上传与裁剪":
                     status.text(f"正在处理 ({i+1}/{total_files}): {f_name} ...")
                     
                     try:
-                        # 1. 提取文件名信息
                         info = extract_info(f_name)
                         clean_region_name = info["文件名"]
                         
-                        # 2. 构造文件名
                         task_suffix = "data"
                         if crop_task_type in TASK_DICT:
                             task_suffix = TASK_DICT[crop_task_type]
@@ -358,7 +293,6 @@ if step == "1. 文档上传与裁剪":
                         print(f"处理出错 {f_name}: {e}")
                         error_files.append(f_name)
                     
-                    # 更新进度条
                     bar.progress((i + 1) / total_files)
                     
                     # 手动清理内存
@@ -368,7 +302,6 @@ if step == "1. 文档上传与裁剪":
                 else: 
                     st.warning(f"⚠️ 完成，但有 {len(error_files)} 个失败。失败列表：{error_files}")
 
-    # --- Tab 2: 手动裁剪 (保持原逻辑，略微优化布局) ---
     with tab2:
         st.info("如果自动裁剪失败，可在此手动指定页码修复。")
         existing_files = [f for f in os.listdir(DIRS["upload"]) if f.endswith(".pdf")]
@@ -390,9 +323,6 @@ if step == "1. 文档上传与裁剪":
         
         if target_file_path:
             st.write(f"当前选中: `{os.path.basename(target_file_path)}`")
-            # ... (后续手动裁剪逻辑保持不变，只需复制您原来的 c1, c2 参数输入部分) ...
-            
-            # --- 为了代码完整，这里补全您的手动逻辑 ---
             c_m1, c_m2 = st.columns(2)
             with c_m1:
                 manual_task_type = st.selectbox(
@@ -403,11 +333,11 @@ if step == "1. 文档上传与裁剪":
                 with col_p1: start_p = st.number_input("起始页码", 1, value=1)
                 with col_p2: end_p = st.number_input("结束页码", 1, value=5)
             
-            if st.button("✂️ 执行裁剪并覆盖", type="primary"):
+            if st.button("✂️ 执行裁剪", type="primary"):
                 f_name = os.path.basename(target_file_path)
                 info = extract_info(f_name)
                 task_suffix = TASK_DICT[manual_task_type]
-                dst_name = f"{info['原始文件名']}_{task_suffix}.pdf"
+                dst_name = f"{info['文件名']}_{task_suffix}_manual.pdf"
                 dst_path = os.path.join(DIRS["crop"], dst_name)
                 
                 if extract_section_to_pdf_self(target_file_path, start_p, end_p, dst_path):
@@ -424,26 +354,25 @@ if step == "1. 文档上传与裁剪":
         cropped_files = [f for f in os.listdir(DIRS["crop"]) if f.endswith(".pdf")]
     
     if cropped_files:
-        # 1. 构造更丰富的数据表
         file_data = []
         for f in cropped_files:
             file_path = os.path.join(DIRS["crop"], f)
             file_size_bytes = os.path.getsize(file_path)
-            if file_size_bytes < 1024 * 1024:
-                # 小于 1MB，显示 KB
-                size_str = f"{file_size_bytes / 1024:.1f} KB"
+            stats = os.stat(file_path)
+            if stats.st_size < 1024 * 1024:
+                size_str = f"{stats.st_size / 1024:.1f} KB"
             else:
-                # 大于 1MB，显示 MB
-                size_str = f"{file_size_bytes / (1024 * 1024):.2f} MB"
-            # 增加一些信息让表格看起来丰满
+                size_str = f"{stats.st_size / (1024 * 1024):.2f} MB"
+            time_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(stats.st_mtime))
             file_data.append({
                 "选择": False,
                 "📄 文件名称": f,
                 "📄 大小": size_str,
-                "🕒 修改时间": time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(file_path)))
+                "🕒 修改时间": time_str,
+                "_timestamp": stats.st_mtime 
             })
-        
-        df_display = pd.DataFrame(file_data)
+        file_data.sort(key=lambda x: x["_timestamp"], reverse=True)
+        df_display = pd.DataFrame(file_data,index=range(1,len(file_data)+1)).drop(columns=["_timestamp"])
 
         edited_df = st.data_editor(
             df_display,
@@ -458,8 +387,21 @@ if step == "1. 文档上传与裁剪":
             height=300 # 增加高度，避免滚动条太短
         )
 
-        # 3. 获取选中文件
         files_to_delete = edited_df[edited_df["选择"]]["📄 文件名称"].tolist()
+
+        if files_to_delete:
+            if st.button(f"🗑️ 删除选中的 {len(files_to_delete)} 个文件", type="primary"):
+                success_num = 0
+                for f_del in files_to_delete:
+                    try:
+                        os.remove(os.path.join(DIRS["crop"], f_del))
+                        success_num += 1
+                    except Exception as e:
+                        st.error(f"删除失败 {f_del}: {e}")
+                if success_num > 0:
+                    st.success(f"已删除 {success_num} 个文件")
+                    time.sleep(1)
+                    st.rerun()
         
         with st.expander("🗑️ 管理/删除已处理文件"):
             def delete_callback():
@@ -509,14 +451,11 @@ if step == "1. 文档上传与裁剪":
                 if f_count > 0:
                     st.warning(f"⚠️ {f_count} 个文件删除失败。")
                 
-                # 显示完一次后清除消息，防止一直显示
                 del st.session_state["delete_result_msg"]
-        # 下载区域 (修正版)
+
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            st.subheader("📦 分类下载")
-            
-            # 1. 获取 crop 目录下所有的 PDF
+            st.subheader("📦 文件下载")
             source_dir = DIRS["crop"]
             all_pdfs = []
             if os.path.exists(source_dir):
@@ -554,10 +493,7 @@ if step == "1. 文档上传与裁剪":
 
                 # 4. 生成并显示下载按钮
                 if files_to_zip:
-                    # === 优化：使用内存流生成 ZIP，无需写入硬盘 ===
-                    # 这样可以避免 "按钮套按钮" 导致的点击后刷新消失问题
                     zip_buffer = io.BytesIO()
-                    
                     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                         for f_name in files_to_zip:
                             file_full_path = os.path.join(source_dir, f_name)
@@ -607,7 +543,7 @@ elif step == "2. 大模型数据获取":
                 file_info_list.append(info)
             
             st.dataframe(
-                pd.DataFrame(file_info_list)[["原始文件名", "文件名", "城市", "地区/县"]], 
+                pd.DataFrame(file_info_list,index=range(1,len(file_info_list)+1))[["原始文件名", "文件名", "城市", "地区/县"]], 
                 height=150,
                 width="stretch"
             )
@@ -703,8 +639,10 @@ elif step == "3. 数据解析":
             st.warning(f"⚠️ 未找到对应的数据文件：{raw_filename}。请先完成步骤 2 中该类型的提取。")
         else:
             df_raw = pd.read_csv(raw_file)
+            df_raw_preview = df_raw.head()
+            df_raw_preview.index = df_raw_preview.index + 1
             st.write(f"📂 读取数据源: `{raw_filename}`")
-            st.write("原始数据预览:", df_raw.head(3))
+            st.write("原始数据预览:", df_raw_preview.head(3))
             
             if col2.button("数据解析", type="primary"):
                 # 1. 调用 utils_parsers 中的处理函数
@@ -752,30 +690,23 @@ elif step == "3. 数据解析":
         
         if uploaded_ext:
             try:
-                # 读取文件
                 if uploaded_ext.name.endswith('.csv'):
                     ext_df = pd.read_csv(uploaded_ext)
                 else:
                     ext_df = pd.read_excel(uploaded_ext)
-                # 简单校验
                 if "地区" not in ext_df.columns:
                     st.error("❌ 上传失败：文件中缺少 `地区` 列！请参照模板格式。")
                     st.write("当前列名:", list(ext_df.columns))
                 else:
                     # 预览
                     st.write("📊 数据预览:", ext_df.head())
-                    
-                    # 保存按钮
                     if st.button("💾 确认并保存"):
-                        target_name = f"parsed_{target_suffix}.csv"
+                        target_name = f"parsed_{target_suffix}_manual.csv"
                         save_path = os.path.join(DIRS["result"], target_name)
-                        
-                        # 强制转为 csv utf-8-sig
                         ext_df.to_csv(save_path, index=False, encoding='utf-8-sig')
                         
                         st.success(f"✅ 文件已保存为: `{target_name}`")
-                        st.info("💡 现在您可以前往 **步骤 4**，该文件将自动参与数据融合。")
-                        
+                        st.info("💡 现在您可以前往 **步骤 4**，该文件将自动参与数据融合。")    
             except Exception as e:
                 st.error(f"文件读取失败: {e}")
     with tab3:
@@ -787,11 +718,8 @@ elif step == "3. 数据解析":
         
         if uploaded_pkl:
             try:
-                # 1. 读取 Pickle
                 data_dict = pd.read_pickle(uploaded_pkl)
-                # 2. 检查数据结构 (基于你提供的 keys)
                 required_keys = {'X', 'features', 'regions'}
-                # 允许 X_norm 不存在（兼容旧数据），但必须有 X
                 if isinstance(data_dict, dict) and required_keys.issubset(data_dict.keys()):
                     st.success("✅ 检测到合法的特征字典结构！")
                     regions = data_dict['regions']
@@ -803,8 +731,6 @@ elif step == "3. 数据解析":
                     use_norm_data = st.checkbox("使用已归一化的数据 (X_norm)", value=True, 
                                               help="如果选中，将使用 pkl 中的 X_norm 直接生成最终矩阵；否则使用 X 重新生成。")
                     matrix_data = preprocess_X(data_dict['X'], eps=1e-8, use_log=True) if use_norm_data  else data_dict['X']
-                    # 4. 重构 DataFrame
-                    # 确保矩阵形状匹配
                     if len(regions) == matrix_data.shape[0] and len(feats) == matrix_data.shape[1]:
                         df_reconstructed = pd.DataFrame(matrix_data, index=regions, columns=feats)
                         df_reconstructed.index.name = "地区"
@@ -815,41 +741,23 @@ elif step == "3. 数据解析":
                             if st.button("🚀 恢复为最终矩阵", type="primary"):
                                 # === 核心操作：直接生成 Step 4 的产出文件 ===
                                 # 保存为 parsed_final_matrix.csv，这样 Step 5 可以直接读取
-                                save_path_final = os.path.join(DIRS["result"], "parsed_origion_final_matrix.csv") # 这个名称是否需要更改，这是原始操作得到的结果
+                                histroy_files = "parsed_origion_matrix.csv"
+                                history_x_files = "parsed_hist_matrix.csv"
+                                save_path_final = os.path.join(DIRS["result"], histroy_files)
                                 df_reconstructed.to_csv(save_path_final, encoding='utf-8-sig')
-                                
-                                # 同时保存一份 raw 用于备份 (如果有 X 的话)
                                 if 'X' in data_dict:
                                     df_raw_backup = pd.DataFrame(data_dict['X'], index=regions, columns=feats)
                                     df_raw_backup.index.name = "地区"
-                                    df_raw_backup.to_csv(os.path.join(DIRS["result"], "parsed_raw_matrix.csv"), encoding='utf-8-sig')
-                                
+                                    df_raw_backup.to_csv(os.path.join(DIRS["result"],history_x_files ), encoding='utf-8-sig')
                                 st.success(f"✅ 数据已恢复！")
                                 st.info("💡 您现在可以直接点击侧边栏的 **'5. 数据分类与导出'** 进行分析。")
                     else:
-                        st.error(f"❌ 维度不匹配：地区数 {len(regions)} vs 矩阵行数 {matrix_data.shape[0]}")
-                
-                # --- 兼容逻辑：如果上传的是普通 DataFrame pkl ---
-                elif isinstance(data_dict, pd.DataFrame):
-                    st.info("📦 检测到普通 DataFrame 格式 (非字典)。")
-                    df_pkl = data_dict
-                    if "地区" not in df_pkl.columns and df_pkl.index.name == "地区":
-                        df_pkl = df_pkl.reset_index()
-                    
-                    st.write("预览:", df_pkl.head(3))
-                    if st.button("💾 转存为 CSV (需经步骤4融合)", key="save_df_pkl"):
-                        # 普通 DataFrame 通常是中间态，建议走步骤4
-                        pkl_task_type = st.selectbox("选择数据类型", list(TASK_DICT.keys()))
-                        target_name = f"parsed_{TASK_DICT[pkl_task_type]}.csv"
-                        df_pkl.to_csv(os.path.join(DIRS["result"], target_name), index=False, encoding='utf-8-sig')
-                        st.success(f"已保存为 {target_name}，请前往步骤 4 融合。")
-                        
+                        st.error(f"❌ 维度不匹配：地区数 {len(regions)} vs 矩阵行数 {matrix_data.shape[0]}") 
                 else:
                     st.error(f"❌ 未知的数据结构。Keys: {data_dict.keys() if isinstance(data_dict, dict) else type(data_dict)}")
 
             except Exception as e:
                 st.error(f"❌ 读取出错: {e}")
-        
     render_file_manager(DIRS["result"], title="已解析的结构化数据", file_ext=".csv", key_prefix="step3")
 # # ========================================================
 # # 4. 数据融合
@@ -872,7 +780,8 @@ elif step == "4. 数据融合&展示":
         # 4.问题: 28-32
         # 5.项目: 33+
         # 1. 定义核心任务后缀顺序
-        strict_order_suffixes = ["landuse", "potential", "spatial", "issue", "project"]
+        strict_order_suffixes = ["LandUse", "potential", "spatial", "issue", "project"]
+        history_filename = "parsed_hist_matrix.csv"
         
         # 2. Default Selection - only include those that exist
         default_files = []
@@ -880,20 +789,33 @@ elif step == "4. 数据融合&展示":
             target_name = f"parsed_{suffix}.csv"
             if target_name in csvs:
                 default_files.append(target_name)
-        # 3. 构建所有选项列表 (All Options) - 核心在前，其他在后
-        # 这样用户可以看到所有 parsed_*.csv，但默认只选对的 5 个
-        other_files = [f for f in csvs if f not in default_files]
-        all_options = default_files + other_files
-        
+        has_history = history_filename in csvs
+        # core files|fusion hist files
+        col_sel1, col_sel2 = st.columns([2, 1])
+        with col_sel1:
+            selected_core = st.multiselect(  
+            "选择要融合的文件 (默认仅选中 5 类核心数据)", 
+            options=[f for f in csvs if f != history_filename], # 排除历史文件，防止混淆
+            default=default_files,
+            help="选择您刚刚从 PDF 解析出来的 parsed_*.csv 文件。"
+            )
+        with col_sel2:
+            st.write("📚 **历史数据融合**")
+            use_history = False
+            if has_history:
+                use_history = st.checkbox(
+                    "➕ 融合历史恢复数据", 
+                    value=True, 
+                    help=f"检测到 Step 3 恢复了 `{history_filename}`，勾选此项将其与新数据合并。"
+                )
+                if use_history:
+                    st.caption(f"✅ 已包含: `{history_filename}`")
+            else:
+                st.caption("🚫 未检测到历史恢复数据 (pkl)")
+        # 4. 构建最终待融合列表
+        final_selected_files = default_files.copy()
         if not default_files:
             st.warning("⚠️ 未找到任何符合标准命名规范的核心文件（如 parsed_landuse.csv）。请检查步骤 3 是否已正确执行。")
-            
-        selected = st.multiselect(
-            "选择要融合的文件 (默认仅选中 5 类核心数据)", 
-            options=all_options, 
-            default=default_files
-        )
-        
         c1, c2 = st.columns([1, 2])
         with c1:
             use_log = st.checkbox("☑️ 启用对数变换", value=True, help="对面积/金额/数量列进行 Log(x+1) 变换，拉近长尾分布的差距，避免小数值在归一化后变为0。")
@@ -909,12 +831,13 @@ elif step == "4. 数据融合&展示":
         raw_res_path = os.path.join(DIRS["result"], raw_filename)
             
         if  start_btn:
-            if not selected:
+            if not final_selected_files:
                 st.error("请至少选择一个文件。")
             else:
                 matrices, maps, names,all_feature_names = [], [], [],[]
-                # 按照排序后的 selected 列表读取
-                for f in selected:
+                sorted_files = []   
+                # process file combine
+                for f in final_selected_files:
                     path = os.path.join(DIRS["result"], f)
                     df = pd.read_csv(path)
                     
@@ -928,12 +851,41 @@ elif step == "4. 数据融合&展示":
                     feat_prefix = f.replace("parsed_", "").replace(".csv", "")
                     names.append(feat_prefix)
                     all_feature_names.extend([f"{feat_prefix}:{c}" for c in df_num.columns])
-                
-                # 1. 融合
+
                 regions, X_final, slices = unify_and_concatenate(matrices, maps, names)
-                
+                history_msg = ""
+                # process history data
+                if use_history:
+                    hist_path = os.path.join(DIRS["result"], history_filename)
+                    df_hist = pd.read_csv(hist_path)
+                    region_his = df_hist["地区"].tolist()
+                    df_hist = df_hist.set_index("地区")
+                    
+                    # regfion2index
+                    df_hist_aligned = pd.DataFrame(index=df_hist.index)
+                    maps = {name: i for i, name in enumerate(region_his)} 
+                    # feature alignment
+                    for target_col in all_feature_names:
+                        raw_col_name = target_col.split(":")[-1] 
+                        if raw_col_name in df_hist.columns:
+                            df_hist_aligned[raw_col_name] = df_hist[raw_col_name]
+                        elif raw_col_name.endswith('排序'):
+                            issue_feature = raw_col_name.split('_')[0] 
+                            df_hist_aligned[raw_col_name] = df_hist['存在_'+issue_feature]
+                    df_hist_num = df_hist_aligned.fillna(0)
+                    hist_matrix = df_hist_num.values
+                    current_regions_set = set(region_his)
+                    unique_indices = [i for i, r in enumerate(current_regions_set) if r not in regions]
+                    if unique_indices:
+                        unique_regions = [region_his[i] for i in unique_indices]
+                        unique_matrix = hist_matrix[unique_indices] 
+                        regions = regions + unique_regions
+                        X_final = np.vstack([X_final, unique_matrix])
+                        history_msg = f" (已包含 {len(unique_regions)} 个历史补全地区)"
+                    else:
+                        st.caption("ℹ️ 历史数据地区已全部存在，未新增行。")
                 if len(regions) > 0:
-                    st.success(f"✅ 融合成功！共 {len(regions)} 个地区，特征维度: {X_final.shape[1]}")
+                    st.success(f"✅ 融合成功！共 {len(regions)} 个地区{history_msg}，特征维度: {X_final.shape[1]}")
                     try:
                         raw_df = pd.DataFrame(X_final, index=regions, columns=all_feature_names)
                         raw_df.index.name = "地区"
@@ -945,9 +897,7 @@ elif step == "4. 数据融合&展示":
                         final_df = pd.DataFrame(X_norm, index=regions, columns=all_feature_names)
                         final_df.index.name = "地区"
                         final_df.to_csv(norm_res_path, encoding='utf-8-sig', index_label="地区")
-                        
-
-
+                        time.sleep(5)
                         st.rerun()
                     except Exception as e:
                             st.error(f"归一化失败: {e}")
